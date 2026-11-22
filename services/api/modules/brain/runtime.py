@@ -1,8 +1,7 @@
-"""Plug-able local and self-hosted text-generation runtimes.
+"""Provider-neutral local and self-hosted text-generation runtimes.
 
-The runtime contract is provider-neutral. Local Ollama and other OpenAI-compatible
-self-hosted endpoints use the chat-completions protocol; no third-party API is
-required for Brain operation.
+NGIT Brain can operate entirely with locally hosted OpenAI-compatible
+inference endpoints; third-party services are optional and never implicit.
 """
 from __future__ import annotations
 
@@ -22,7 +21,7 @@ class Generation:
 
 
 class ModelRuntime(Protocol):
-    """A cancellable asynchronous text-generation runtime."""
+    """Cancelable, asynchronous text generation contract."""
 
     async def generate(
         self, *, model: str, messages: list[dict[str, str]], temperature: float,
@@ -31,11 +30,11 @@ class ModelRuntime(Protocol):
 
 
 class RuntimeErrorBase(Exception):
-    """Safe, caller-facing model runtime failure."""
+    """Safe caller-facing runtime failure."""
 
 
 class RuntimeUnavailable(RuntimeErrorBase):
-    """The model endpoint was unavailable or returned unusable output."""
+    """Runtime failed or returned unusable output."""
 
 
 class OpenAICompatibleRuntime:
@@ -69,8 +68,8 @@ class OpenAICompatibleRuntime:
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("empty model output")
-            return Generation(text=text.strip(), model=str(payload.get("model") or model),
-                              finish_reason=choice.get("finish_reason"))
+            return Generation(text.strip(), str(payload.get("model") or model),
+                              choice.get("finish_reason"))
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RuntimeUnavailable("Model runtime returned an invalid response") from exc
 
@@ -88,7 +87,7 @@ class ModelDefinition:
 
 
 class ModelRegistry:
-    """In-process registry; durable administrative configuration is future work."""
+    """In-process registry; durable administrative configuration is separate."""
 
     def __init__(self) -> None:
         self._models: dict[str, ModelDefinition] = {}
@@ -138,7 +137,7 @@ class IntentRecognizer(Protocol):
 
 
 class HeuristicIntentRecognizer:
-    """Deterministic baseline classifier, not represented as a trained model."""
+    """Deterministic offline baseline classifier, not a trained model."""
 
     _RULES = (
         ("greeting", ("hello", "hi", "hey", "good morning", "good evening")),
@@ -159,7 +158,7 @@ class HeuristicIntentRecognizer:
 
 
 class BrainError(Exception):
-    """Domain error with a stable machine-readable code."""
+    """Domain error with stable machine-readable code."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -170,9 +169,10 @@ class BrainError(Exception):
 class BrainService:
     """Intent, confidence, model routing, generation, and optional fallback."""
 
-    def __init__(self, registry: ModelRegistry,
-                 recognizer: IntentRecognizer | None = None,
-                 fallback: ModelDefinition | None = None) -> None:
+    def __init__(
+        self, registry: ModelRegistry, recognizer: IntentRecognizer | None = None,
+        fallback: ModelDefinition | None = None,
+    ) -> None:
         self.registry = registry
         self.recognizer = recognizer or HeuristicIntentRecognizer()
         self.fallback = fallback
@@ -191,7 +191,6 @@ class BrainService:
         intent, confidence = self.recognizer.recognize(text)
         if confidence < request.min_confidence:
             raise BrainError("low_confidence", "Could not confidently identify the request")
-
         if request.model_id:
             selected = self.registry.get(request.model_id)
             if selected is None or not selected.enabled or "chat" not in selected.capabilities:
@@ -202,8 +201,10 @@ class BrainService:
         if not candidates:
             raise BrainError("model_unavailable", "No chat model is configured")
 
-        messages = [{"role": "system", "content": request.system_prompt},
-                    {"role": "user", "content": text}]
+        messages = [
+            {"role": "system", "content": request.system_prompt},
+            {"role": "user", "content": text},
+        ]
         attempted: set[str] = set()
         last_error: RuntimeErrorBase | None = None
         queue = list(candidates)
@@ -214,7 +215,7 @@ class BrainService:
                 continue
             attempted.add(definition.model_id)
             try:
-                generated = await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     definition.runtime.generate(
                         model=definition.model_name, messages=messages,
                         temperature=request.temperature,
@@ -223,12 +224,16 @@ class BrainService:
                     ), timeout=definition.timeout_seconds,
                 )
                 return BrainResponse(
-                    text=generated.text, intent=intent, confidence=confidence,
+                    text=result.text, intent=intent, confidence=confidence,
                     model_id=definition.model_id,
                     fallback_used=definition not in candidates,
                 )
             except (RuntimeErrorBase, asyncio.TimeoutError) as exc:
-                last_error = (exc if isinstance(exc, RuntimeErrorBase)
-                              else RuntimeUnavailable("Model runtime timed out"))
-        raise BrainError("model_generation_failed",
-                         "No configured model could generate a response") from last_error
+                last_error = exc if isinstance(exc, RuntimeErrorBase) else RuntimeUnavailable(
+                    "Model runtime timed out"
+                )
+        raise BrainError(
+            "model_generation_failed",
+            "No configured model could generate a response",
+        ) from last_error
+        
