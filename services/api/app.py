@@ -20,6 +20,7 @@ from services.api.modules.agent.api import create_router as create_agent_router
 from services.api.modules.agent.runtime import ToolRegistry, build_agent
 
 settings = Settings.from_env()
+settings.validate_security_configuration()
 db = Database(settings.database_url, settings.database_schema)
 authenticator, policies, approvals, audit, emergency, actions = create_default_security()
 users = UserService(db)
@@ -48,9 +49,10 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     supplied = request.headers.get("X-Request-ID", "")
-    request.state.request_id = supplied[:128] if supplied and len(supplied) <= 128 else str(uuid4())
+    safe_id = supplied if supplied and len(supplied) <= 128 and all(c.isalnum() or c in "-_.:" for c in supplied) else str(uuid4())
+    request.state.request_id = safe_id
     response = await call_next(request)
-    response.headers["X-Request-ID"] = request.state.request_id
+    response.headers["X-Request-ID"] = safe_id
     return response
 
 
