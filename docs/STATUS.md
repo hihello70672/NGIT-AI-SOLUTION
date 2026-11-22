@@ -40,7 +40,7 @@ Tests and runtime checks were not run for this update; no passing result is clai
 
 ## Phase 2 security implementation boundaries
 
-Security engines are implemented in `services/api/security.py`, with regression coverage in `services/api/tests/test_security.py`. Their token, approval, stop and audit state is process-local, not durable/shared across workers. Environment-backed `SecretStore` is a lookup boundary, not production secret-manager integration. API initialization requires `AUTH_TOKEN_PEPPER`, configured with at least 32 bytes; `.env.example` documents a non-secret replacement instruction. Keep deployment single-worker until shared state and its lifecycle are designed and validated.
+Security engines are implemented in `services/api/security.py`, with regression coverage in `services/api/tests/test_security.py`. Their token, approval, stop and audit state is process-local, not durable/shared across workers. Environment-backed `SecretStore` is a lookup boundary, not production secret-manager integration. API initialization requires `AUTH_TOKEN_PEPPER` and `PASSWORD_PEPPER`; `.env.example` documents non-secret replacement instructions. Keep deployment single-worker until shared state and its lifecycle are designed and validated.
 
 ## Phase 3 / Phase 4 validation boundaries
 
@@ -54,4 +54,6 @@ Tests and runtime checks were not run for this update; no passing result is clai
 
 ## Phase 2 API integration follow-up
 
-The API entry point and contract tests were extended in this update to keep Brain routes behind bearer authentication. Existing test sources were reviewed, but test execution remains unverified.
+The API entry point, auth service, configuration, test harness and API guide were extended to consistently use the committed security and persistence interfaces. Brain REST routes are protected by bearer authentication; no WebSocket route is added because current contracts are request/response and the shared protocol leaves streaming auth and delivery semantics open. Existing test sources were reviewed, but test execution remains unverified.
+
+Commits: `050783743500a80416220d98c23e854b6caf5e80`, `76340025c08cb41b3971a5f32db8b35d2b83d517`, `f6ec5773c1db469b9f6bc0c81e6e0b36551d1416`.
