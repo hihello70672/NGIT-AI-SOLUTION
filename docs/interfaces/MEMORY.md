@@ -1,21 +1,24 @@
 # Memory and knowledge interface
 
-## Privacy and ownership contract
+This document describes the Memory module boundary; it is not evidence that every capability is runtime-validated. See [project status](../STATUS.md). Inspect current Memory code and [shared protocols](SHARED_PROTOCOLS.md) before changes. Shared-contract changes require Chief Architect review.
 
-All user-scoped methods receive authenticated server-derived `user_id`, validate it as UUID, and open database transactions with `Database.connection(user_id)`, which sets transaction-local `ngit.user_id` for PostgreSQL RLS. Request-body owner values are never accepted as authority. Queries scope reads and writes by owner; conversation-message writes require a matching active owned conversation. Composite foreign keys and RLS provide database enforcement. Validate RLS using a non-owner, non-superuser application role.
+## Responsibility and ownership
 
-## Service API
+Memory owns user/conversation memory, persistence, retrieval, knowledge ingestion, provenance, and preference memory. PostgreSQL is authoritative for persisted records. The module owns its persistence and migrations; consumers use published contracts rather than accessing its tables directly.
 
-`MemoryService` creates/lists conversations, persists ordered messages, and stores/lists memory records using existing `conversations`, `messages`, and `memory_records` tables. Persisted kinds follow schema-supported profile, preference, fact, and summary values.
+## Contract requirements
 
-`RetrievalService.search` performs deterministic lexical retrieval and can accept an optional vector adapter implementing `search(user_id, query, limit, memory_type)`. Vector hits are intersected with IDs from the authenticated user’s database corpus before results are returned. Embeddings/indexing are optional external adapters because the current schema has no embedding column or vector extension.
+- Authenticated operations receive server-derived caller context. Bind reads/writes to that owner in service queries; ignore client-provided owner IDs as authority.
+- Conversation and memory identifiers are validated and checked against the caller's ownership before use. Return safe failures without exposing another user's existence or data.
+- Retrieval candidates, including optional vector-search results, are constrained to the authenticated owner's corpus and requested types before returning or using them.
+- Bound query, document, chunk, result, and resource sizes. Treat imported text and retrieved content as untrusted input.
+- Preserve provenance/source metadata where available. URL-origin allowlisting is not proof that remote content is authentic or safe; fetching requires separate network protections.
+- Embedding generation and persistence are optional/open until supported by approved storage and privacy contracts.
 
-`KnowledgeService.ingest_text` normalizes and chunks caller-provided text into summary memory records while retaining source, chunk index, and verification marker in metadata. `ingest_verified` rejects unallowlisted sources. URL-origin verification compares exact scheme, hostname, and effective port; it does not fetch URLs or establish truth. Callers provide the source text and configured allowlist.
+## Failure behavior and isolation
 
-## REST and trust boundaries
+Invalid input, inaccessible/foreign identifiers, unavailable persistence, or adapter errors fail safely with typed errors. Logs and responses must not contain secrets, prompts, internal traces, or other users' content. Validate isolation with cross-user service/database tests and, where RLS is configured, a non-owner, non-superuser database role without `BYPASSRLS`.
 
-Mounted under the configured API prefix: conversation create/list; message create/list under a conversation; memory create/list/search; and `POST /knowledge/ingest`. Every route requires existing bearer authentication. Search works without external AI/vector services. Knowledge ingestion is disabled for all sources unless an explicit source allowlist is configured. Imported text and provenance are untrusted; retain source metadata and do not imply verification beyond the implemented marker.
+## Current operational caveat
 
-## Validation
-
-The status records `services/api/tests/test_memory.py` coverage for owner-scoped SQL/RLS setup, foreign conversation rejection, input validation, vector-hit filtering, lexical retrieval, exact source verification, and chunk metadata. It has not been run for this update. API tests use the documented API test command; database integration should also use `services/api/db/tests/run.sh` against disposable PostgreSQL to check actual constraints and RLS.
+The status record says memory/database tests and runtime checks have not been run for this update. Checked-in tests are source coverage, not passing-test evidence.

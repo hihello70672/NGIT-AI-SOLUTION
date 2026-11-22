@@ -1,93 +1,34 @@
 # NGIT AI SOLUTION v4.0 — Phase plan
 
-This plan records approved target deliverables, not completion claims. Implementation evidence and outstanding verification are tracked separately in [STATUS.md](STATUS.md). A source file or checked-in test does not prove runtime validation or passing results.
+This document records approved target deliverables and repository evidence separately. Implementation evidence is not runtime validation; checked-in tests do not prove execution or passing outcomes. See [STATUS.md](STATUS.md).
 
-## Build step A — Phases 1–2: Foundation, authentication, backend, security, users
+## Build sequence
 
-### Phase 1 — Architecture, repository, database, shared protocols
+Work proceeds in groups: phases 1–2; 3–4; 5–7; 8–9; 10–11; then 12. Preserve working code and inspect actual routes, schemas, migrations, module layout, frontend patterns, and shared interfaces before changes.
 
-**Deliverables:** Approved architecture and module boundaries; shared contracts; PostgreSQL schema/migrations/indexes; local Compose setup; migration and RLS verification.
+| Phase | Deliverables | Repository evidence and outstanding work |
+|---|---|---|
+| **1. Architecture, repository, database, shared protocols** | Approved boundaries/contracts; migration inventory; migrations/schema for required domains; database grants/RLS strategy; fresh-database and non-owner isolation verification; local database startup verification. | Architecture, dependency, phase, assignment, ERD, status and shared-interface docs exist. Actual inventory is five migrations (`0001`–`0005`). SQL integration-test sources exist. Migration execution, grants, non-owner RLS validation and Compose lifecycle are outstanding. |
+| **2. Authentication, backend, security, users** | Validated authenticated API boundaries; user/account flows; authorization and ownership; safe errors/request IDs; policy, approvals, emergency stop and audit; frontend auth/user flows; security/API tests. | FastAPI configuration, request IDs, safe errors, auth/user services, REST routes/schemas, authorization and transaction-local caller context are reported present. Security primitives and React/TypeScript/Vite sign-in, registration, dashboard, profile and read-only admin listing are reported present. Test sources exist but have not run. Process-local security state, example peppers, environment-only secret lookup and browser local-storage token caveats remain. |
+| **3. Brain, model runtime, memory, knowledge** | Authenticated generation path; Brain/model and memory contracts; local/self-hosted runtime and routing; owner-isolated conversations/memories; retrieval, ingestion, provenance and evaluation; authorization/isolation/safe-failure tests. | Deterministic offline intent recognition, confidence thresholds, typed contracts, bounded generation, in-process registry, deterministic routing, local/self-hosted OpenAI-compatible runtime, optional self-hosted fallback and sanitized failures are reported present. Memory persistence, lexical retrieval, optional injected owner/type-filtered vector search, provenance-aware chunking and exact URL-origin allowlisting without fetching sources are reported present. Runtime/database checks unrun. Generation authorization is separate and must be integrated/tested before exposure to untrusted callers; embeddings are not persisted. |
+| **4. Personal Agent** | Contracted planner/registry; authenticated owner-scoped task lifecycle; tool execution with observation/verification; backend permission/approval; safe browser/filesystem/computer adapters; API/security tests. | Deterministic single-step planning, tool allowlist/registry, process-local owner-scoped history, observation/verification, browser and workspace-bounded filesystem interfaces, and injected computer-control interface are reported present. Sensitive actions use shared policy and exact-scope single-use approvals. Test sources exist but have not run. Task/security state is process-local; filesystem checks are not an OS sandbox; browser SSRF/network defenses and constrained computer-control adapter remain requirements. |
+| **5. Multilingual, voice, vision, remote control** | Language/dialect handling, translation, code-switching, style adaptation; voice, vision and remote-control contracts; privacy/authorization tests. | Phases 5–7 are not started; no completed phase-5 implementation is reported. |
+| **6. Administration, rules, service control, billing** | Backend-enforced admin; billing plans, metering, quotas, verification, history and webhook/renewal/refund contracts; authorization and audit tests. | Phases 5–7 are not started. A read-only administrator user listing exists from phase 2. Billing data is reported in the schema, but no completed billing service is reported. Payment provider remains open. |
+| **7. Optional provider management and browsing** | Optional provider configuration and server-side credential references; health/usage/cost, routing/fallback; approved search/browser adapters and safeguards; failure/secret-handling tests. | Phases 5–7 are not started. Phase 3 offers local/self-hosted runtime and optional self-hosted fallback; provider metadata stores opaque references, not secrets. No completed provider-management or browsing integration is reported. |
+| **8. Creative Studio** | Image/video/document workflows, processing, composition, media management, rendering; artifact-storage contract; ownership and safety tests. | Phases 8–9 are not started. Schema metadata includes media/video/presentation domains; no completed Creative Studio is reported. |
+| **9. Content-to-Video and presenters** | Script-to-scenes/storyboards, asset matching, timelines, audio sync, subtitles, preview/export; requested presenter/content modes; presenter, lip-sync, voice and alignment contracts. | Phases 8–9 are not started. Media/video/presentation metadata exists; no completed video pipeline or presenter implementation is reported. |
+| **10. Newsroom, Teaching, Storytelling** | Verified aggregation/analysis/scripts/narration/ticker/subtitles/archive; lessons, teaching presentations, classroom, explanations, quizzes/assessment; provenance safeguards and tests. | Phases 10–11 are not started; no completed newsroom or education module is reported. |
+| **11. Cybersecurity Center** | Authorized scope validation; safe-lab/assessment interfaces; network/web/configuration analysis, forensics, remediation; audit and authorization tests. | Phases 10–11 are not started; no completed cybersecurity module is reported. Authorized targets and safe labs only. |
+| **12. Integration, QA, documentation, local release** | Cross-module QA; suites and local Compose/startup verification; exact-results test report; verified downloadable ZIP. | Phase 12 is not started. `docs/TEST_REPORT.md` is absent. Status reports no test/runtime execution and no release or tag. Create report and package only after verification. |
 
-**Status record:** Architecture, dependency, phase, assignment, ERD and shared-interface documentation; FastAPI/web roots; Compose/environment example; migrations `0001`–`0005`; seed/reference data and schema checks are recorded. Migration integrity, RLS under non-owner role, cross-user checks, and Compose lifecycle remain unverified.
+## Integration gates
 
-### Phase 2 — Authentication, backend, security, user management
+1. **Inspect and reconcile:** Preserve implementation; inspect API routes, schemas, modules, migrations, frontend patterns and four shared-interface documents. The migration discrepancy is resolved from actual files: five ordered SQL migrations `0001`–`0005`.
+2. **Stabilize contracts:** Chief Architect reviews module-boundary/shared-contract changes. Before integration, document typed contracts, authorization context, persistence ownership, errors and dependencies.
+3. **Validate foundation/security:** Apply migrations to fresh PostgreSQL 16+; provision the intended non-owner, non-superuser role; verify grants/RLS and cross-user isolation. Integrate transaction-local database caller context.
+4. **Integrate by dependency order:** Complete and validate phases 1–2, then 3–4, 5–7, 8–9, 10–11, and 12. Later modules cannot bypass identity, ownership, security, audit or contracts.
+5. **Set operational limits honestly:** Until security/task state is durable and validated for multi-worker operation, use one worker. Filesystem path checks are not OS sandboxing. Browser adapters need SSRF/network protections; computer control requires an explicitly injected constrained adapter.
+6. **Run and report verification:** Run API/web suites, database/RLS tests, Compose lifecycle checks, production frontend build, and end-to-end startup as applicable. Record exact commands, environment and outcomes. Create `docs/TEST_REPORT.md` only after tests actually run.
+7. **Release only with phase 12 evidence:** Produce a downloadable ZIP only after integration and local-release verification. No release or tag is currently reported.
 
-**Deliverables:** Validated authentication/security design; backend-enforced authorization, approvals, audit and emergency controls; user APIs and frontend flows; security tests.
-
-**Status record:** Authentication/user services/routes/schemas, authorization and approval controls, emergency stop, audit redaction, and frontend sign-in/registration and authenticated user-management flows are recorded. Responsive dark UI design system, dashboard shell, profile screen, administrator users screen, shared API client, and UI tests for API/auth states are included. Tokens, approvals, emergency-stop state, and audits are process-local; admin user listing is read-only. Runtime validation remains outstanding.
-
-## Build step B — Phases 3–4: Brain, model runtime, memory, knowledge, Agent
-
-### Phase 3 — Brain, model runtime, memory, knowledge
-
-**Deliverables:** Intent/reasoning orchestration, confidence handling, model registry/routing, local/self-hosted runtime, optional fallback, memory retrieval, knowledge ingestion/provenance, user isolation and evaluation coverage.
-
-**Status record:** Deterministic intent classification and confidence checks; in-process registry/priority routing; bounded async generation; local/self-hosted OpenAI-compatible runtime and opt-in self-hosted fallback; persisted conversations/messages and memory records; lexical retrieval plus optional vector candidates; provenance-aware text ingestion; URL-origin allowlist verification without fetching remote content. Embeddings/vector indexing remain optional external adapters. Runtime/integration checks unverified.
-
-### Phase 4 — Personal Agent, tools, browser and computer interfaces
-
-**Deliverables:** Planner/tool contracts; scoped execution; observation/verification; policy and approval gates; owner-scoped task status/results; failure and side-effect tests.
-
-**Status record:** Conservative one-step planner, tool registry, bounded workspace filesystem access, HTTP(S)-only browser boundary, injected computer-control boundary, observations/verification, and authenticated task APIs are recorded. Restricted actions pause for exact action/resource approval. Rejection, mismatched/expired grants, emergency stop, tool failures, and failed verification do not produce success. Security/task state is process-local and execution synchronous; adapters/workspace require configuration. Validation outstanding.
-
-## Build step C — Phases 5–7: Language, administration, billing, optional integrations
-
-### Phase 5 — Multilingual, voice, vision, remote interfaces
-
-Deliver language/dialect handling, translation, code-switching, style/preferences, and approved voice/vision/remote-control contracts. Define permission, privacy, failure behavior, and language/error coverage.
-
-### Phase 6 — Administration, rules, service control, billing
-
-Deliver backend-enforced administration and audit; roles/rules/service controls and emergency operations; plans, quotas, metering, payment-verification interfaces, and billing history. Do not assume a payment provider.
-
-### Phase 7 — Optional provider management and browsing
-
-Deliver optional provider configuration/registry, server-side secret references, connection/health and usage/cost reporting, routing/fallback, and approved search/browser adapters. Demonstrate a core Brain path without external providers.
-
-**Status for phases 5–7:** Not started in the status record.
-
-## Build step D — Phases 8–9: Creative Studio, Content-to-Video, presenters
-
-### Phase 8 — Creative Studio
-
-Deliver image/video/document workflows, processing, composition, user-owned media management and rendering; prefer local/self-hosted options where practical. Define storage/task/failure behavior and ownership tests.
-
-### Phase 9 — Content-to-Video, presenters, lip-sync, subtitles
-
-Deliver scripts, scenes, storyboards, asset matching, timelines, audio sync, subtitles, preview/export, and modes: Robot Presenter, Human Avatar Presenter, News Presenter, Teaching, Storytelling, Documentary, Presentation, and Live News. Keep presentation orchestration separate from presenter/avatar/TTS/speech-alignment contracts. Set artifact ownership/storage boundaries before integration.
-
-**Status for phases 8–9:** Not started in the status record.
-
-## Build step E — Phases 10–11: Newsroom, Teaching, Storytelling, Cybersecurity
-
-### Phase 10 — Newsroom, Teaching, Storytelling
-
-Deliver aggregation, analysis, verification, scripts, narration, ticker, subtitles, and archives; educational lesson/presentation generation, virtual teacher/classroom, visual explanations, quizzes, and assessment; integrate through phase 9 presentation contracts. Preserve provenance: do not fabricate events or present generated footage as authentic.
-
-### Phase 11 — Cybersecurity Center
-
-Deliver authorized vulnerability assessment, network/web analysis, configuration audits, forensics, safe labs, scope validation, remediation reporting, and security tests. Validate authorization and target scope on the server.
-
-**Status for phases 10–11:** Not started in the status record.
-
-## Build step F — Phase 12: Integration, QA, documentation, local release
-
-### Phase 12 — Integration, QA, documentation, local release
-
-Integrate approved modules and run/report API, auth, ownership/isolation, billing, service-control, media/video/subtitle/language, sensitive-action, web, and failure tests. Fix and retest defects. Document local setup, migrations, operations, and decided backup/recovery expectations. Verify a downloadable ZIP before claiming release readiness. Create `docs/TEST_REPORT.md` only after tests actually run, recording exact commands, environment, outcomes, blockers, and retests.
-
-**Status record:** README, local Docker guidance, API/database test sources, and phase/status/interface documentation exist. `docs/TEST_REPORT.md` is absent; no tests were run for this update; migration/RLS, Compose, API, adapters, and suites remain unverified. No release or tag is recorded.
-
-## Integration gates and evidence discipline
-
-1. Inventory actual code/contracts before changing paths; preserve working implementations.
-2. Verify migrations, ownership/RLS, API, web, Compose, and database behavior with recorded evidence.
-3. Integrate phases 3–4 using reviewed contracts; distinguish process-local/synchronous behavior from durable task execution.
-4. Approve language, voice/vision/remote, administration, billing, provider, secret, task, and streaming protocols before dependent integration.
-5. Settle artifact storage, task/status, subtitle, and presenter boundaries before phases 8–9 integration.
-6. Gate Agent, newsroom, cybersecurity, billing, and administration on backend authorization, audit, and relevant verification tests.
-7. Record implementation separately from validation. Never claim an unrun check passed.
-
-## Open decisions
-
-See [architecture open decisions](ARCHITECTURE.md#decisions-still-open). This plan does not select ORM, authentication format, durable runner, payment provider, vector stack, production topology, media storage, or secret-management product.
+Open decisions remain open as listed in [architecture](ARCHITECTURE.md#6-technical-decisions-and-open-questions); this plan does not select an ORM, auth/session format, payment provider, task runner, event transport, vector store, or production topology.
