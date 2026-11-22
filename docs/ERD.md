@@ -1,6 +1,6 @@
 # NGIT PostgreSQL ERD
 
-All application domain tables reside in isolated schema `ngit`. Identifiers are UUID; timestamps use `timestamptz`. Composite foreign keys include `user_id` where a child must belong to the same tenant as its parent.
+Application domain tables are isolated in schema `ngit`. Identifiers are UUID and timestamps are `timestamptz`. Child/parent composite keys include tenant ownership where appropriate.
 
 ```mermaid
 erDiagram
@@ -24,8 +24,8 @@ erDiagram
   USERS o|--o{ AUDIT_LOGS : acts
 ```
 
-`provider_configs` contains optional global provider metadata and opaque credential references only; it is disabled by default and never requires an external AI API. `schema_migrations` tracks applied SQL. `audit_logs` and provider configuration are privileged service data, not tenant-facing RLS records.
+`provider_configs` is optional global metadata, stores opaque credential references only, defaults disabled, and never makes external AI mandatory. `schema_migrations` records applied SQL. Audit logs, roles and reference/provider configuration are privileged service data and are not end-user-readable.
 
-RLS is enabled and forced on user-scoped tables. Trusted API transactions set `ngit.user_id` from authenticated server context. Use a non-owner, non-superuser role without `BYPASSRLS`; table owners and superusers can bypass policy behavior. Composite owner FKs additionally prevent cross-user message/conversation, video/source-asset and slide/presentation links. Indexes serve owner-scoped recent lists, chronological message fetches, joins and audit timelines.
+Forced RLS protects user-scoped records. Trusted API code sets `ngit.user_id` transaction-locally from authenticated server context. The app role must not own tables, be superuser, or have `BYPASSRLS`. Composite foreign keys prevent cross-user conversation/message, media/video and presentation/slide links. Indexes support owner-scoped recent lists, chronological messages, joins, provider lookup and audit timelines.
 
-Apply migrations and run disposable-database checks per `services/api/db/README.md`. The presence of SQL checks does not mean they have executed.
+Apply migrations and execute disposable-database assertions per `services/api/db/README.md`; checked-in tests do not imply they ran.

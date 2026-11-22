@@ -1,4 +1,3 @@
--- Compatibility migration marker. Domain objects are created in 0001 so
--- billing plan reference data can be seeded by 0002 in lexical migration order.
+-- Compatibility marker. Domain objects are established in 0001 before seed migration 0002.
 SET search_path TO ngit,public;
-INSERT INTO schema_migrations(version) VALUES('0004_complete_domain_schema') ON CONFLICT DO NOTHING;
+INSERT INTO ngit.schema_migrations(version) VALUES('0004_complete_domain_schema') ON CONFLICT DO NOTHING;

@@ -4,11 +4,11 @@ Status is based on committed files in the reviewed `main` tree. Checked-in tests
 
 ## Phase 1 — Foundation, architecture, database and local environment
 
-**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Local PostgreSQL Compose configuration and root `.env.example` are present. Five ordered migrations (`0001`–`0005`) create the isolated `ngit` schema, users, roles, user-scoped conversations/messages and memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes, RLS policies and a tenant-safe video/source-asset constraint. Reference seed data and SQL integration checks cover tenant isolation, seeds, and selected constraints.
+**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Local PostgreSQL Compose configuration and root `.env.example` are present. Five ordered SQL migrations (`0001`–`0005`) create the isolated `ngit` schema, users, roles, conversations/messages, typed memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes and forced RLS. Seed data and transactional SQL integration checks cover selected tenant isolation and constraints.
 
-**Remaining validation:** Apply migrations on a fresh PostgreSQL 16+ instance; validate constraints, indexes and seeds; execute isolation checks using a provisioned application role that is neither a superuser nor table owner; verify migration and application grants/ownership; validate Compose/local startup.
+**Remaining validation:** Apply migrations on a fresh PostgreSQL 16+ instance; validate schema, indexes and seeds; run isolation checks using a provisioned application role that is neither superuser nor table owner; verify migration/application grants; validate Compose/local startup.
 
-**Caveats:** The migration runner must apply lexically ordered migrations as a privileged migration principal. Do not run tenant checks as a superuser or table owner. Provision a separate non-owner, non-superuser application role without `BYPASSRLS` and grant only required privileges. Application code must set `ngit.user_id` transaction-locally from authenticated server context, never client input. Provider configuration stores opaque credential references, not secret values. External AI remains optional. No database or Compose checks are claimed as run.
+**Caveats:** Migrations run lexically as a privileged migration principal. Do not run tenant checks as superuser or table owner. Provision a separate non-owner/non-superuser application role without `BYPASSRLS`; grant only required privileges. API code sets `ngit.user_id` transaction-locally only from authenticated server context, never client input. Provider metadata stores opaque credential references, not secrets. External AI remains optional. No database/Compose checks are claimed as run.
 
 ## Phase 2 — Authentication, security, API, users and web client
 
@@ -38,6 +38,6 @@ No tests or runtime checks are claimed as executed for this update, including Py
 
 ## Next work
 
-Execute the documented API/web suites and resolve failures. Complete PostgreSQL migration/RLS checks with a non-owner role; validate grants, lifecycle, durable shared state and production startup. Review workspace deployment isolation and browser SSRF controls before multi-worker or untrusted deployment. Preserve distinct-reviewer approval for sensitive actions.
+Execute documented API/web suites and resolve failures. Complete PostgreSQL migration/RLS checks with a non-owner role; validate grants, lifecycle, durable shared state and production startup. Review workspace deployment isolation and browser SSRF controls before multi-worker or untrusted deployment. Preserve distinct-reviewer approval for sensitive actions.
 
 Agent suite command from repository root: `PYTHONPATH=. python -m pytest services/api/tests` with documented dependencies installed. No test result is implied.
