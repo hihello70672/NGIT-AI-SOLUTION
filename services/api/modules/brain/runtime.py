@@ -51,7 +51,8 @@ class OpenAICompatibleRuntime:
                 "max_tokens": max_tokens}
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(f"{self.base_url}/chat/completions", json=body, headers=headers)
+                response = await client.post(f"{self.base_url}/chat/completions", json=body,
+                                             headers=headers)
                 response.raise_for_status()
                 payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -61,7 +62,8 @@ class OpenAICompatibleRuntime:
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("empty output")
-            return Generation(text.strip(), str(payload.get("model") or model), choice.get("finish_reason"))
+            return Generation(text.strip(), str(payload.get("model") or model),
+                              choice.get("finish_reason"))
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RuntimeUnavailable("Model runtime returned an invalid response") from exc
 
@@ -98,7 +100,8 @@ class ModelRegistry:
         return self._models.get(model_id)
 
     def candidates(self, capability: str = "chat") -> list[ModelDefinition]:
-        return sorted((m for m in self._models.values() if m.enabled and capability in m.capabilities),
+        return sorted((m for m in self._models.values()
+                       if m.enabled and capability in m.capabilities),
                       key=lambda m: (m.priority, m.model_id))
 
 
@@ -127,7 +130,7 @@ class IntentRecognizer(Protocol):
 
 
 class HeuristicIntentRecognizer:
-    """Deterministic offline baseline classifier, not a trained model."""
+    """Deterministic offline baseline classifier; not a trained model."""
 
     _RULES = (
         ("greeting", ("hello", "hi", "hey", "good morning", "good evening")),
@@ -178,6 +181,7 @@ class BrainService:
         intent, confidence = self.recognizer.recognize(text)
         if confidence < request.min_confidence:
             raise BrainError("low_confidence", "Could not confidently identify the request")
+
         if request.model_id:
             selected = self.registry.get(request.model_id)
             if selected is None or not selected.enabled or "chat" not in selected.capabilities:
@@ -187,7 +191,9 @@ class BrainService:
             candidates = self.registry.candidates("chat")
         if not candidates:
             raise BrainError("model_unavailable", "No chat model is configured")
-        messages = [{"role": "system", "content": request.system_prompt}, {"role": "user", "content": text}]
+
+        messages = [{"role": "system", "content": request.system_prompt},
+                    {"role": "user", "content": text}]
         attempted: set[str] = set()
         last_error: RuntimeErrorBase | None = None
         queue = list(candidates)
@@ -199,13 +205,19 @@ class BrainService:
             attempted.add(definition.model_id)
             try:
                 result = await asyncio.wait_for(
-                    definition.runtime.generate(model=definition.model_name, messages=messages,
-                        temperature=request.temperature, max_tokens=request.max_tokens or definition.max_tokens,
-                        timeout=definition.timeout_seconds), timeout=definition.timeout_seconds)
+                    definition.runtime.generate(
+                        model=definition.model_name, messages=messages,
+                        temperature=request.temperature,
+                        max_tokens=request.max_tokens or definition.max_tokens,
+                        timeout=definition.timeout_seconds),
+                    timeout=definition.timeout_seconds)
                 return BrainResponse(result.text, intent, confidence, definition.model_id,
                                      definition not in candidates)
             except (RuntimeErrorBase, asyncio.TimeoutError) as exc:
-                last_error = exc if isinstance(exc, RuntimeErrorBase) else RuntimeUnavailable("Model runtime timed out")
+                last_error = (exc if isinstance(exc, RuntimeErrorBase)
+                              else RuntimeUnavailable("Model runtime timed out"))
         raise BrainError("model_generation_failed", "No configured model could generate a response") from last_error
-PY
-services/api/modules/brain/api.py
+
+__all__ = ["BrainError", "BrainRequest", "BrainResponse", "BrainService", "Generation",
+           "HeuristicIntentRecognizer", "IntentRecognizer", "ModelDefinition", "ModelRegistry",
+           "ModelRuntime", "OpenAICompatibleRuntime", "RuntimeErrorBase", "RuntimeUnavailable"]

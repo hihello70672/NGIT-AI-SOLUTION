@@ -1,7 +1,7 @@
 """HTTP contract for the NGIT Brain."""
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from services.api.modules.brain.runtime import (

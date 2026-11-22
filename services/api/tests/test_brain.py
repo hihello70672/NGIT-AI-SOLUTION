@@ -5,7 +5,7 @@ import pytest
 
 from services.api.modules.brain.runtime import (
     BrainError, BrainRequest, BrainService, Generation, HeuristicIntentRecognizer,
-    ModelDefinition, ModelRegistry, RuntimeUnavailable,
+    ModelDefinition, ModelRegistry, OpenAICompatibleRuntime, RuntimeUnavailable,
 )
 
 
@@ -26,12 +26,12 @@ def model(model_id, runtime, priority=10, enabled=True):
 
 def test_intent_evaluation_examples_and_confidence_range():
     classifier = HeuristicIntentRecognizer()
-    cases = [("Hi there", "greeting"), ("How does this work?", "question"),
-             ("Write a Python function", "code"), ("Summarize this", "summarization"),
-             ("Translate this in Spanish", "translation"), ("Tell me a story", "general")]
-    outcomes = [classifier.recognize(text) for text, _ in cases]
-    assert [label for label, _ in outcomes] == [expected for _, expected in cases]
-    assert all(0 <= score <= 1 for _, score in outcomes)
+    examples = [("Hi there", "greeting"), ("How does this work?", "question"),
+                ("Write a Python function", "code"), ("Summarize this", "summarization"),
+                ("Translate into Spanish", "translation"), ("Tell me a story", "general")]
+    results = [(classifier.recognize(text)) for text, _ in examples]
+    assert [label for label, _ in results] == [expected for _, expected in examples]
+    assert all(0 <= score <= 1 for _, score in results)
     assert classifier.recognize("  ") == ("unknown", 0.0)
 
 
@@ -46,13 +46,13 @@ def test_registry_priority_capability_and_validation():
         registry.register(ModelDefinition("bad", FakeRuntime(), "bad", timeout_seconds=0))
 
 
-def test_local_model_generation_and_intent_confidence():
+def test_primary_model_generates_answer_with_intent_and_confidence():
     runtime = FakeRuntime("answer")
     registry = ModelRegistry()
     registry.register(model("local", runtime))
     result = asyncio.run(BrainService(registry).respond(BrainRequest("How are you?")))
     assert (result.text, result.model_id, result.intent) == ("answer", "local", "question")
-    assert result.confidence >= 0.35 and not result.fallback_used
+    assert result.confidence == 0.82 and not result.fallback_used
     assert runtime.calls[0]["temperature"] == 0.2
 
 
@@ -62,8 +62,8 @@ def test_failed_primary_routes_to_next_registered_model():
     registry.register(model("primary", first, priority=1))
     registry.register(model("secondary", second, priority=2))
     result = asyncio.run(BrainService(registry).respond(BrainRequest("Explain this")))
-    assert result.model_id == "secondary" and not result.fallback_used
-    assert len(first.calls) == len(second.calls) == 1
+    assert result.model_id == "secondary" and result.text == "secondary"
+    assert not result.fallback_used and len(first.calls) == len(second.calls) == 1
 
 
 def test_optional_self_hosted_fallback_and_opt_out():
@@ -79,21 +79,33 @@ def test_optional_self_hosted_fallback_and_opt_out():
     assert "private runtime detail" not in error.value.message
 
 
-def test_low_confidence_and_invalid_generation_limits_are_rejected():
+def test_low_confidence_invalid_limits_and_explicit_model_validation():
     registry = ModelRegistry()
     registry.register(model("local", FakeRuntime()))
     service = BrainService(registry)
-    for request in (BrainRequest(" "), BrainRequest("hello", min_confidence=0.99),
-                    BrainRequest("hello", max_tokens=0), BrainRequest("hello", temperature=float("nan"))):
+    cases = [BrainRequest("  "), BrainRequest("hello", min_confidence=0.99),
+             BrainRequest("hello", max_tokens=0), BrainRequest("hello", temperature=float("nan"))]
+    for request in cases:
         with pytest.raises(BrainError):
             asyncio.run(service.respond(request))
-
-
-def test_unknown_or_disabled_explicit_model_is_not_silently_rerouted():
-    registry = ModelRegistry()
-    registry.register(model("disabled", FakeRuntime(), enabled=False))
     with pytest.raises(BrainError) as error:
-        asyncio.run(BrainService(registry).respond(BrainRequest("question?", model_id="missing")))
+        asyncio.run(service.respond(BrainRequest("question?", model_id="missing")))
     assert error.value.code == "model_not_found"
-PY
-services/api/tests/test_brain_api.py
+
+
+def test_runtime_url_rejects_embedded_credentials_and_query():
+    for url in ("https://user:pass@model.local/v1", "http://model.local/v1?token=secret"):
+        with pytest.raises(ValueError):
+            OpenAICompatibleRuntime(url)
+
+
+def test_generation_timeout_is_safely_reported():
+    class SlowRuntime:
+        async def generate(self, **kwargs):
+            await asyncio.sleep(0.05)
+            return Generation("late", "slow")
+    registry = ModelRegistry()
+    registry.register(ModelDefinition("slow", SlowRuntime(), "slow", timeout_seconds=0.001))
+    with pytest.raises(BrainError) as error:
+        asyncio.run(BrainService(registry).respond(BrainRequest("help")))
+    assert error.value.code == "model_generation_failed"
