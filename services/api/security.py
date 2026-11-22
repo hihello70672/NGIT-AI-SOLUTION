@@ -305,11 +305,13 @@ class RestrictedActionManager:
 
 
 def create_default_security():
+    """Build the default process-local engines, preserving the API factory contract."""
     audit = AuditLogger()
     policies = PolicyEngine()
     policies.register(Policy("profile.read", frozenset({"user", "admin"})))
     policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals, stop = ApprovalEngine(), EmergencyStop(audit)
+    approvals = ApprovalEngine()
+    stop = EmergencyStop(audit)
     actions = RestrictedActionManager(policies, approvals, stop, audit)
     return Authenticator(), policies, approvals, audit, stop, actions
 
@@ -321,164 +323,3 @@ def error_payload(error: SecurityError, request_id: str | None = None) -> dict[s
 __all__ = ["Approval", "ApprovalEngine", "AuthContext", "Authenticator", "AuditLogger", "EmergencyStop",
            "Policy", "PolicyEngine", "RestrictedActionManager", "SecretStore", "SecurityError",
            "create_default_security", "error_payload"]
-
-
-# Compatibility with the existing API module's established factory name.
-create_default_security = create_default_security
-
-# Historical public symbol; keep API imports stable.
-SecretStore.__module__
-
-
-# Legacy constructor alias retained for existing route wiring.
-def create_default_security_legacy():
-    return create_default_security()
-
-
-create_default_security.__name__
-
-# Existing app imports create_default_security and expects six components.
-
-def create_default_security():
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals, stop = ApprovalEngine(), EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(), policies, approvals, audit, stop, actions
-
-
-class _Compat:
-    pass
-
-# expose previous expected name from application imports
-__all__ += ["create_default_security_legacy"]
-# Compatibility name used by services/api/app.py
-
-def create_default_security():
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals, stop = ApprovalEngine(), EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(), policies, approvals, audit, stop, actions
-
-
-def create_default_security():
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals, stop = ApprovalEngine(), EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(), policies, approvals, audit, stop, actions
-
-
-# Public API name consumed by app.py
-__all__ = list(dict.fromkeys(__all__))
-
-def create_default_security():
-    """Build process-local security services used by the API entrypoint."""
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals = ApprovalEngine()
-    stop = EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(), policies, approvals, audit, stop, actions
-
-
-def create_default_security():
-    """Build API security services and validate secrets at application startup."""
-    pepper = SecretStore().get("AUTH_TOKEN_PEPPER")
-    if pepper is None or len(pepper.encode()) < 32:
-        raise ValueError("AUTH_TOKEN_PEPPER must be configured and at least 32 bytes")
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals = ApprovalEngine()
-    stop = EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(pepper), policies, approvals, audit, stop, actions
-
-
-def create_default_security():
-    """Build default engines while preserving the existing API factory contract."""
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals = ApprovalEngine()
-    stop = EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(), policies, approvals, audit, stop, actions
-
-
-def create_default_security():
-    """Build default security services using the configured token pepper."""
-    pepper = SecretStore().get("AUTH_TOKEN_PEPPER")
-    if not pepper:
-        raise ValueError("AUTH_TOKEN_PEPPER must be configured")
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals = ApprovalEngine()
-    stop = EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(pepper), policies, approvals, audit, stop, actions
-
-
-def create_default_security():
-    """Build security engines with a safe configured pepper requirement."""
-    pepper = SecretStore().get("AUTH_TOKEN_PEPPER")
-    if not isinstance(pepper, str) or len(pepper.encode()) < 32:
-        raise ValueError("AUTH_TOKEN_PEPPER must be configured and at least 32 bytes")
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals = ApprovalEngine()
-    stop = EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(pepper), policies, approvals, audit, stop, actions
-
-
-def create_default_security():
-    """Create the shared process-local security engines for API wiring."""
-    pepper = SecretStore().get("AUTH_TOKEN_PEPPER")
-    if pepper is None:
-        # Authenticator intentionally rejects missing/weak configuration.
-        authenticator = Authenticator()
-    else:
-        authenticator = Authenticator(pepper)
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals, stop = ApprovalEngine(), EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return authenticator, policies, approvals, audit, stop, actions
-
-
-def create_default_security():
-    """Construct security services; API startup requires configured pepper."""
-    pepper = SecretStore().get("AUTH_TOKEN_PEPPER")
-    authenticator = Authenticator(pepper)
-    audit = AuditLogger()
-    policies = PolicyEngine()
-    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
-    approvals = ApprovalEngine()
-    stop = EmergencyStop(audit)
-    actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return authenticator, policies, approvals, audit, stop, actions
-
-
-# Alias used by existing application entrypoint.
-create_default_security.__name__
-
