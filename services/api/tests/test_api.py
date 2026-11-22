@@ -41,9 +41,7 @@ def test_registration_profile_and_logout():
 def test_validation_auth_and_brain_routes_are_protected():
     assert client.post("/api/v1/auth/register", json={"email": "bad", "password": "x", "display_name": ""}).status_code == 422
     assert client.get("/api/v1/users/me").status_code == 401
-    # Every Brain endpoint must reject a request without a valid bearer token.
     for route in ("/api/v1/brain/health", "/api/v1/brain/generate"):
         response = client.get(route) if route.endswith("health") else client.post(route, json={})
-        assert response.status_code in (401, 404, 405)
-        if response.status_code == 401:
-            assert response.json()["error"]["code"] == "unauthenticated"
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "unauthenticated"

@@ -44,27 +44,17 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
     return context
 
 
-def authenticated_brain(request: Request) -> AuthContext:
-    """Authenticate Brain callers without changing its established router contract."""
-    authorization = request.headers.get("Authorization", "")
-    scheme, separator, token = authorization.partition(" ")
-    if not separator or scheme.lower() != "bearer" or not token:
+def authenticated_brain(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> AuthContext:
+    """Dependency guard for the existing Brain router's unauthenticated handlers."""
+    if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
-    return current_user_from_token(token)
-
-
-def current_user_from_token(token: str) -> AuthContext:
-    context = auth.authenticate(token)
+    context = auth.authenticate(credentials.credentials)
     audit.record(action="auth.authenticated", actor_user_id=context.user_id, outcome="success")
     return context
 
-# The Brain module's existing routes accept an injected dependency per endpoint.
-# Guard them at the router boundary and retain the existing endpoint schemas.
-from fastapi import APIRouter
-brain_guarded_router = APIRouter(dependencies=[Depends(authenticated_brain)])
-brain_guarded_router.include_router(brain_router)
-app.include_router(brain_guarded_router, prefix=settings.api_prefix)
-
+# The shared interface retains the Brain router's paths and schemas; a router-level
+# dependency ensures its endpoints cannot be called anonymously.
+app.include_router(brain_router, prefix=settings.api_prefix, dependencies=[Depends(authenticated_brain)])
 source_allowlist = tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",") if x.strip())
 app.include_router(create_memory_router(db, current_user, source_allowlist=source_allowlist), prefix=settings.api_prefix)
 workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
