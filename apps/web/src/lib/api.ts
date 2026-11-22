@@ -1,10 +1,5 @@
 export interface User {
-  id: string;
-  email: string;
-  display_name: string;
-  status: string;
-  roles: string[];
-  created_at: string;
+  id: string; email: string; display_name: string; status: string; roles: string[]; created_at: string;
 }
 export interface TokenResponse { access_token: string; token_type?: string; user: User }
 interface ApiErrorPayload { error?: { code?: string; message?: string; request_id?: string } }
@@ -26,15 +21,13 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
   return response.json() as Promise<T>;
 }
 const normalizeUser = (user: User): User => ({ ...user, roles: user.roles || [], created_at: user.created_at || '' });
-
 export interface BrainModel { model_id: string; model_name: string; capabilities: string[]; priority: number }
 export interface BrainResult { text: string; intent: string; confidence: number; model_id: string; fallback_used: boolean }
 export interface BrainRequest { text: string; model_id?: string; temperature?: number; max_tokens?: number; min_confidence?: number; allow_fallback?: boolean }
 export interface AgentTool { name: string; description?: string; sensitive?: boolean }
 export interface AgentObservation { state: string; action?: string; resource_id?: string; message?: string; [key: string]: unknown }
-export interface AgentTask { id: string; goal: string; state: string; observations: AgentObservation[]; pending_approval_id?: string | null; result?: unknown; error?: string | null; created_at?: string }
+export interface AgentTask { task_id: string; goal: string; state: string; observations: AgentObservation[]; pending_approval_id?: string | null; result?: unknown; error?: string | null; created_at?: string }
 export interface AgentApproval { task_id: string; approval_id: string; action: string; resource_id: string; status: string }
-
 export const api = {
   login: async (email: string, password: string): Promise<TokenResponse> => { const result = await request<TokenResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }); return { ...result, user: normalizeUser(result.user) }; },
   register: async (display_name: string, email: string, password: string): Promise<TokenResponse> => { const result = await request<TokenResponse>('/auth/register', { method: 'POST', body: JSON.stringify({ display_name, email, password }) }); return { ...result, user: normalizeUser(result.user) }; },
