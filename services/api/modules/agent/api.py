@@ -43,7 +43,7 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
         return public_record(invoke(agent.get, context, task_id))
 
     @router.post("/tasks/{task_id}/approve")
-    def approve(task_id: str, body: ApprovalInput, context: AuthContext = Depends(current_user)):
+    def approve(task_id: str, context: AuthContext = Depends(current_user)):
         if approvals is None:
             raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
         record = invoke(agent.get, context, task_id)
