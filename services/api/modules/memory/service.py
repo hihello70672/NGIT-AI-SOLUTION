@@ -36,10 +36,7 @@ class MemoryService:
             raise ValueError("title must contain 1 to 240 characters")
         keys = ("id", "user_id", "title", "created_at", "updated_at")
         with self.database.connection(owner) as conn:
-            row = conn.execute(
-                "INSERT INTO conversations(user_id,title) VALUES (%s,%s) "
-                "RETURNING id,user_id,title,created_at,updated_at", (owner, title)
-            ).fetchone()
+            row = conn.execute("INSERT INTO conversations(user_id,title) VALUES (%s,%s) RETURNING id,user_id,title,created_at,updated_at", (owner, title)).fetchone()
         return self._dict(row, keys)
 
     def list_conversations(self, user_id: str, limit: int = 50) -> list[dict[str, Any]]:
@@ -48,10 +45,7 @@ class MemoryService:
             raise ValueError("limit must be between 1 and 100")
         keys = ("id", "user_id", "title", "created_at", "updated_at")
         with self.database.connection(owner) as conn:
-            rows = conn.execute(
-                "SELECT id,user_id,title,created_at,updated_at FROM conversations "
-                "WHERE user_id=%s ORDER BY updated_at DESC,id LIMIT %s", (owner, limit)
-            ).fetchall()
+            rows = conn.execute("SELECT id,user_id,title,created_at,updated_at FROM conversations WHERE user_id=%s ORDER BY updated_at DESC,id LIMIT %s", (owner, limit)).fetchall()
         return [self._dict(row, keys) for row in rows]
 
     def add_message(self, user_id: str, conversation_id: str, role: str, content: str,
@@ -63,13 +57,7 @@ class MemoryService:
             raise ValueError("message content must contain 1 to 100000 characters")
         keys = ("id", "user_id", "conversation_id", "role", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
-            row = conn.execute(
-                "INSERT INTO messages(user_id,conversation_id,role,content) "
-                "SELECT %s,id,%s,%s FROM conversations "
-                "WHERE id=%s AND user_id=%s AND status='active' "
-                "RETURNING id,user_id,conversation_id,role,content,'{}'::jsonb AS metadata,created_at",
-                (owner, role, content, conversation, owner),
-            ).fetchone()
+            row = conn.execute("INSERT INTO messages(user_id,conversation_id,role,content) SELECT %s,id,%s,%s FROM conversations WHERE id=%s AND user_id=%s AND status='active' RETURNING id,user_id,conversation_id,role,content,'{}'::jsonb AS metadata,created_at", (owner, role, content, conversation, owner)).fetchone()
             if row is None:
                 raise LookupError("conversation not found")
             conn.execute("UPDATE conversations SET updated_at=now() WHERE id=%s AND user_id=%s", (conversation, owner))
@@ -81,12 +69,7 @@ class MemoryService:
             raise ValueError("limit must be between 1 and 500")
         keys = ("id", "user_id", "conversation_id", "role", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
-            rows = conn.execute(
-                "SELECT m.id,m.user_id,m.conversation_id,m.role,m.content,'{}'::jsonb AS metadata,m.created_at "
-                "FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.user_id=m.user_id "
-                "WHERE m.user_id=%s AND m.conversation_id=%s AND c.user_id=%s "
-                "ORDER BY m.created_at,m.id LIMIT %s", (owner, conversation, owner, limit)
-            ).fetchall()
+            rows = conn.execute("SELECT m.id,m.user_id,m.conversation_id,m.role,m.content,'{}'::jsonb AS metadata,m.created_at FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.user_id=m.user_id WHERE m.user_id=%s AND m.conversation_id=%s AND c.user_id=%s ORDER BY m.created_at,m.id LIMIT %s", (owner, conversation, owner, limit)).fetchall()
         return [self._dict(row, keys) for row in rows]
 
     def save_memory(self, user_id: str, content: str, memory_type: str = "fact",
@@ -103,19 +86,10 @@ class MemoryService:
         keys = ("id", "user_id", "kind", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
             if conversation_id is None:
-                row = conn.execute(
-                    "INSERT INTO memories(user_id,kind,content,metadata) VALUES (%s,%s,%s,%s::jsonb) "
-                    "RETURNING id,user_id,kind,content,metadata,created_at",
-                    (owner, memory_type, content.strip(), json.dumps(meta, separators=(",", ":"))),
-                ).fetchone()
+                row = conn.execute("INSERT INTO memories(user_id,kind,content,metadata) VALUES (%s,%s,%s,%s::jsonb) RETURNING id,user_id,kind,content,metadata,created_at", (owner, memory_type, content.strip(), json.dumps(meta, separators=(",", ":")))).fetchone()
             else:
                 conversation = _uid(conversation_id)
-                row = conn.execute(
-                    "INSERT INTO memories(user_id,kind,content,metadata) "
-                    "SELECT %s,%s,%s,%s::jsonb FROM conversations WHERE id=%s AND user_id=%s "
-                    "RETURNING id,user_id,kind,content,metadata,created_at",
-                    (owner, memory_type, content.strip(), json.dumps(meta, separators=(",", ":")), conversation, owner),
-                ).fetchone()
+                row = conn.execute("INSERT INTO memories(user_id,kind,content,metadata) SELECT %s,%s,%s,%s::jsonb FROM conversations WHERE id=%s AND user_id=%s RETURNING id,user_id,kind,content,metadata,created_at", (owner, memory_type, content.strip(), json.dumps(meta, separators=(",", ":")), conversation, owner)).fetchone()
                 if row is None:
                     raise LookupError("conversation not found")
         return self._dict(row, keys)
@@ -129,20 +103,14 @@ class MemoryService:
         keys = ("id", "user_id", "kind", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
             if memory_type is None:
-                rows = conn.execute(
-                    "SELECT id,user_id,kind,content,metadata,created_at FROM memories "
-                    "WHERE user_id=%s ORDER BY created_at DESC,id LIMIT %s", (owner, limit)
-                ).fetchall()
+                rows = conn.execute("SELECT id,user_id,kind,content,metadata,created_at FROM memories WHERE user_id=%s ORDER BY created_at DESC,id LIMIT %s", (owner, limit)).fetchall()
             else:
-                rows = conn.execute(
-                    "SELECT id,user_id,kind,content,metadata,created_at FROM memories "
-                    "WHERE user_id=%s AND kind=%s ORDER BY created_at DESC,id LIMIT %s", (owner, memory_type, limit)
-                ).fetchall()
+                rows = conn.execute("SELECT id,user_id,kind,content,metadata,created_at FROM memories WHERE user_id=%s AND kind=%s ORDER BY created_at DESC,id LIMIT %s", (owner, memory_type, limit)).fetchall()
         return [self._dict(row, keys) for row in rows]
 
 
 class RetrievalService:
-    """Lexical retrieval with optional vector candidate reranking."""
+    """Lexical retrieval with optional owner-filtered vector candidates."""
 
     def __init__(self, memory: MemoryService, vector_search: Any | None = None):
         self.memory, self.vector_search = memory, vector_search
@@ -151,8 +119,7 @@ class RetrievalService:
     def _terms(text: str) -> set[str]:
         return set(re.findall(r"[\w'-]+", text.casefold()))
 
-    def search(self, user_id: str, query: str, limit: int = 10,
-               memory_type: str | None = None) -> list[dict[str, Any]]:
+    def search(self, user_id: str, query: str, limit: int = 10, memory_type: str | None = None) -> list[dict[str, Any]]:
         owner = _uid(user_id)
         if not isinstance(query, str) or not query.strip() or len(query) > 2000:
             raise ValueError("query must contain 1 to 2000 characters")
@@ -162,12 +129,10 @@ class RetrievalService:
         terms = self._terms(query)
         ranked: dict[str, dict[str, Any]] = {}
         for doc in docs:
-            overlap = terms & self._terms(str(doc["content"]))
+            content_terms = self._terms(str(doc["content"]))
+            overlap = terms & content_terms
             if overlap:
-                ranked[str(doc["id"])] = {
-                    **doc, "score": len(overlap) / math.sqrt(max(1, len(terms)) * max(1, len(self._terms(str(doc["content"]))))),
-                    "source": "memory",
-                }
+                ranked[str(doc["id"])] = {**doc, "score": len(overlap) / math.sqrt(max(1, len(terms)) * max(1, len(content_terms))), "source": "memory"}
         if self.vector_search is None:
             return sorted(ranked.values(), key=lambda item: (-item["score"], str(item["id"])))[:limit]
         hits = self.vector_search.search(user_id=owner, query=query, limit=limit, memory_type=memory_type)
@@ -189,14 +154,13 @@ class RetrievalService:
 
 
 class KnowledgeService:
-    """Ingest caller-provided text; source verification performs no network I/O."""
+    """Ingest caller-provided text; source verification never performs network I/O."""
 
     def __init__(self, memory: MemoryService):
         self.memory = memory
 
-    def ingest_text(self, user_id: str, text: str, source: str,
-                    conversation_id: str | None = None, chunk_size: int = 1200,
-                    overlap: int = 100) -> list[dict[str, Any]]:
+    def ingest_text(self, user_id: str, text: str, source: str, conversation_id: str | None = None,
+                    chunk_size: int = 1200, overlap: int = 100) -> list[dict[str, Any]]:
         _uid(user_id)
         if not isinstance(source, str) or not source.strip() or len(source) > 1000:
             raise ValueError("source must contain 1 to 1000 characters")
@@ -218,15 +182,10 @@ class KnowledgeService:
             if end >= len(normalized):
                 break
             start = max(start + 1, end - overlap)
-        return [
-            self.memory.save_memory(user_id, chunk, "summary", conversation_id,
-                                    {"source": source.strip(), "chunk_index": index, "verified_source": True})
-            for index, chunk in enumerate(chunks)
-        ]
+        return [self.memory.save_memory(user_id, chunk, "summary", conversation_id, {"source": source.strip(), "chunk_index": index, "verified_source": True}) for index, chunk in enumerate(chunks)]
 
     @staticmethod
     def verify_source(source: str, allowlist: Sequence[str]) -> bool:
-        """Require exact identifier or exact URL origin; never fetch the source."""
         if not isinstance(source, str) or not source or not allowlist:
             return False
         try:
