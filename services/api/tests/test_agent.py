@@ -7,7 +7,7 @@ from services.api.modules.agent.runtime import (AgentError, AgentPlanner, Browse
 class AgentTests(unittest.TestCase):
     def setUp(self):
         self.audit=AuditLogger(); policies=PolicyEngine()
-        for name in ("filesystem.write","browser.navigate","computer.perform"):
+        for name in ("filesystem.write", "browser.navigate", "computer.perform"):
             policies.register(Policy(f"agent.tool.{name}",frozenset({"user","admin"}),approval_required=True,restricted=True))
         self.approvals=ApprovalEngine(); self.permissions=RestrictedActionManager(policies,self.approvals,EmergencyStop(self.audit),self.audit)
         self.context=AuthContext("alice",frozenset({"user"})); self.other=AuthContext("bob",frozenset({"user"}))
@@ -43,9 +43,11 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(record.state,"succeeded"); self.assertEqual(self.agent.history(self.other),[])
         with self.assertRaises(AgentError): self.agent.get(self.other,record.task_id)
     def test_failed_verification_never_succeeds(self):
+        from services.api.modules.agent.runtime import AgentPlan, AgentService, PlannedStep
         tools=ToolRegistry(); tools.register(ToolDefinition("safe.verify","unverified",False,lambda _:ToolResult("value","not verified",False)))
-        from services.api.modules.agent.runtime import AgentService
-        agent=AgentService(tools,self.permissions,planner=type("Planner",(),{"plan":lambda _self,owner,goal: __import__("services.api.modules.agent.runtime",fromlist=["AgentPlan"]).AgentPlan("task",owner,goal,(__import__("services.api.modules.agent.runtime",fromlist=["PlannedStep"]).PlannedStep("safe.verify",{},"test"),),"now")})())
+        class Planner:
+            def plan(self,owner,goal): return AgentPlan("task",owner,goal,(PlannedStep("safe.verify",{},"test"),),"now")
+        agent=AgentService(tools,self.permissions,Planner())
         self.assertEqual(agent.submit(self.context,"test").state,"failed")
     def test_browser_url_and_computer_adapter_fail_closed(self):
         with self.assertRaises(AgentError): self.tools.get("browser.inspect").handler({"url":"file:///etc/passwd"})
