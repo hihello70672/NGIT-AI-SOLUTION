@@ -1,6 +1,10 @@
 # PostgreSQL schema checks
 
-Use a fresh disposable PostgreSQL 16+ database. Requires `psql`, migration credentials in `DATABASE_URL`, and a separately provisioned app-role connection in `APP_DATABASE_URL`.
+Use a fresh, disposable PostgreSQL 16+ database. `DATABASE_URL` must be a
+migration principal that can create the isolated `ngit` schema and its objects.
+`APP_DATABASE_URL` must identify a separately provisioned non-owner,
+non-superuser role without `BYPASSRLS`, with the schema/table grants needed by
+the application and these tests.
 
 ```sh
 export DATABASE_URL='postgresql://migration_user:password@localhost:5432/ngit_test'
@@ -8,8 +12,10 @@ export APP_DATABASE_URL='postgresql://ngit_test_app:password@localhost:5432/ngit
 sh services/api/db/tests/run.sh
 ```
 
-The migration principal owns schema and migration objects. The test login must be non-superuser, not a table owner, and lack `BYPASSRLS`. Provision `USAGE` on schema `ngit`, SELECT on reference rows, and fixture DML for `users` and user-owned tables. Admin-table RLS checks require the role to be granted SELECT/INSERT on `admin_rules` and `service_controls`, while the non-admin identity must have the same grants to prove RLS denies access (not merely SQL grants). Do not grant access to privileged provider or audit data beyond test needs. Assertions insert temporary identities and roll fixtures back.
-
-Checks cover existing owner scope plus admin-table read/write isolation, using the test SQL in `test_schema.sql`. Checked-in assertions do not prove tests were executed or passed.
-
-Migration `0006_admin_control.sql` also creates owner-only SELECT/INSERT policies for `ngit.users`, which are necessary for administrator user listings and account changes when the API connects as the authenticated non-owner role. Role grants remain deployment provisioning work.
+The runner applies migrations lexically, then runs the existing admin-policy
+checks and `test_phase1.sql` as the application principal. The latter verifies
+required domain tables, seeded roles/provider metadata, tenant-scoped reads and
+the composite message/conversation ownership constraint. An unset application
+URL is explicitly a migration-only run; it does not verify RLS. Never point the
+suite at production or valuable data. No credentials or secret values belong
+in this repository. Checks are not evidence of execution until run and recorded.

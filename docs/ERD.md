@@ -1,6 +1,11 @@
 # NGIT PostgreSQL ERD
 
-Application tables live in the isolated `ngit` schema. UUID primary keys and `timestamptz` timestamps are used throughout. Composite tenant keys preserve ownership across dependent rows.
+All application objects are isolated in schema `ngit`. UUID keys and
+`timestamptz` timestamps are used throughout. Tenant-owned records carry
+`user_id`; composite foreign keys prevent child rows from referencing a
+parent belonging to another tenant. Forced row-level security applies to
+user-owned tables; trusted server code sets `ngit.user_id` from authenticated
+caller context. Use a non-owner, non-superuser role without `BYPASSRLS`.
 
 ```mermaid
 erDiagram
@@ -15,17 +20,24 @@ erDiagram
   BILLING_PLANS ||--o{ SUBSCRIPTIONS : defines
   SUBSCRIPTIONS ||--o{ USAGE_RECORDS : measures
   USERS ||--o{ USAGE_RECORDS : accrues
+  USERS ||--o{ BILLING_PAYMENTS : pays
   USERS ||--o{ MEDIA_ASSETS : owns
   MEDIA_ASSETS ||--o{ VIDEOS : source
   USERS ||--o{ VIDEOS : owns
   USERS ||--o{ PRESENTATIONS : owns
   PRESENTATIONS ||--o{ PRESENTATION_SLIDES : contains
   USERS ||--o{ PRESENTATION_SLIDES : owns
-  USERS o|--o{ AUDIT_LOGS : acts
+  USERS ||--o{ AUDIT_LOGS : acts
 ```
 
-`provider_configs` contains optional global provider metadata and opaque credential references only; it never stores secret material. `schema_migrations` records applied versions. Role assignments, audit logs, provider metadata, billing reference plans, and schema bookkeeping are privileged service data, not user-readable data.
+`provider_configs` holds optional global provider metadata and opaque
+`credential_ref` values only; secret material must live in an approved
+server-side secret manager. `billing_webhook_events` is privileged provider
+processing data and denies tenant access. `schema_migrations` records applied
+versions. `admin_rules` and `service_controls` are protected administrative
+state. Indexes support owner-scoped recent lists, conversation chronology,
+role joins, billing lookups, provider availability and audit timelines.
 
-Forced RLS is enabled for user-owned application rows. Trusted server code sets transaction-local `ngit.user_id` from authenticated caller context; it must never be derived from client-provided identity. The application role must be non-owner, non-superuser and lack `BYPASSRLS`. Composite foreign keys ensure child records cannot refer across tenants. Indexes support owner-scoped recent lists, chronological message retrieval, joins, enabled-provider lookup and audit timelines.
-
-Apply `services/api/db/migrations/*.sql` in lexical order and run disposable-database assertions documented in `services/api/db/tests/README.md`. Checked-in assertions are not evidence that migrations or tests have run.
+See `services/api/db/migrations/` for the authoritative ordered SQL. Apply on a
+fresh disposable PostgreSQL instance and run `services/api/db/tests/`; checked-in
+SQL is not execution evidence.
