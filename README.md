@@ -1,37 +1,43 @@
 # NGIT AI SOLUTION
 
-NGIT is a web-first modular AI application built around a FastAPI backend, PostgreSQL system of record, and React/TypeScript frontend in `apps/web`. This milestone has one frontend; NGIT-WINDOWS, NGIT-KALI, and NGIT-ANDROID are out of scope until the web/backend system is stable.
+NGIT is a web-first modular AI application built around a FastAPI backend, PostgreSQL system of record, and React/TypeScript/Vite frontend in `apps/web/`. This milestone has one frontend only. Windows, Kali, and Android clients are future adaptations and out of scope until the web/backend system is stable.
 
-## Scope and status
+## Repository status and scope
 
-The repository includes implementation for early phases, but committed code and documentation are not proof of runtime behavior. See [project status](docs/STATUS.md) for recorded evidence and outstanding validation. Do not claim tests, migrations, RLS, or Compose lifecycle checks passed unless they were actually run. Later phase capabilities remain planned until implemented and validated.
+The repository records implementation through phases 1–4. That implementation record is not runtime validation: tests, migrations, RLS, and Compose checks remain outstanding as detailed in [project status](docs/STATUS.md). Phases 5–12 are not started in the status record. Do not infer production readiness from source files or planned architecture.
+
+NGIT Brain retains a local/self-hosted model-runtime path. External AI APIs are optional; core operation must not depend on them. The current root Docker Compose configuration runs PostgreSQL only, not API/web containers.
 
 ## Local PostgreSQL
 
-Docker Compose currently defines PostgreSQL for local development. The API and web containers are not included in Compose because their application/container build tooling has not been selected for this setup.
+Requirements: Docker Compose plugin. From the repository root:
 
-1. Copy `.env.example` to `.env` and change local database values if needed. Configure a unique `AUTH_TOKEN_PEPPER` before starting the API; see [API setup](services/api/README.md). Example values are for local development only.
-2. Start PostgreSQL: `docker compose up -d db`.
-3. Check service status: `docker compose ps`.
-4. Stop PostgreSQL: `docker compose down`. Add `-v` only if you intend to delete the named database volume.
+```sh
+cp .env.example .env
+# Edit local values as needed; never commit .env or use example credentials in production.
+docker compose up -d db
+docker compose ps
+# Stop without deleting database data:
+docker compose down
+# Destructive: remove the named database volume only when intended:
+docker compose down -v
+```
 
-The database port is published for local development. Do not expose this setup publicly or reuse its example password in production. Never commit `.env` or real credentials.
+The Compose service is PostgreSQL 16 with a persistent named volume and readiness health check. `.env.example` contains development-only values, not production secrets. Database port is published for local development; do not expose this setup publicly. Compose lifecycle has not been verified for this update. Follow [local container guidance](infra/docker/README.md).
 
 ## API and web development
 
-See [API instructions](services/api/README.md) and [web instructions](apps/web/README.md) for their setup and test commands. Database schema checks are documented in `services/api/db/tests/README.md`; PostgreSQL-dependent checks require a disposable database.
+See [API setup](services/api/README.md) and [web setup](apps/web/README.md) for dependencies, configuration, and commands. Database migration instructions and schema checks are documented in `services/api/db/README.md` and `services/api/db/tests/README.md`. Use disposable PostgreSQL for integration tests. Before exposing Brain generation to untrusted callers, address the authorization gap documented in `docs/STATUS.md`.
 
 ## Architecture and contracts
 
-- [Architecture and repository target](docs/ARCHITECTURE.md)
-- [Module dependency map](docs/DEPENDENCY_MAP.md)
-- [Phased delivery plan](docs/PHASE_PLAN.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Dependency map](docs/DEPENDENCY_MAP.md)
+- [Phase plan](docs/PHASE_PLAN.md)
 - [Agent assignments](docs/AGENT_ASSIGNMENTS.md)
 - [Status and validation gaps](docs/STATUS.md)
-- [Shared protocols](docs/interfaces/SHARED_PROTOCOLS.md)
-- [Agent](docs/interfaces/AGENT.md), [Brain](docs/interfaces/BRAIN.md), and [Memory](docs/interfaces/MEMORY.md) contracts
-- [Local container guidance](infra/docker/README.md)
+- Shared protocols: [common](docs/interfaces/SHARED_PROTOCOLS.md), [Agent](docs/interfaces/AGENT.md), [Brain](docs/interfaces/BRAIN.md), [Memory](docs/interfaces/MEMORY.md)
 
-Domain modules share one FastAPI application and PostgreSQL initially, with distinct ownership and typed service boundaries. User ownership is derived from authenticated server context; frontend checks are never authoritative. Keep a local/self-hosted Brain runtime path available. External AI APIs are optional. Do not add a broker, distributed services, vector persistence, or unapproved integrations by assumption.
+PostgreSQL is authoritative. Backend services derive caller context and enforce authorization/ownership; the frontend is not a security boundary. Module integrations use typed published contracts. Shared-contract and boundary changes require Chief Architect review. No test result is claimed here; see status for validation discipline and outstanding checks.
 
-Shared contracts and module boundaries require Chief Architect review. Preserve existing working paths and review the interface documents before extending them. Open decisions and runtime caveats remain documented; this repository does not assert production readiness.
+Never commit `.env`, credentials, tokens, or provider secrets. Use local environment configuration and keep credentials server-side.
