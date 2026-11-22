@@ -15,7 +15,8 @@ sh services/api/db/tests/run.sh
 The runner applies migrations lexically, then runs the existing admin-policy
 checks and `test_phase1.sql` as the application principal. The latter verifies
 required domain tables, seeded roles/provider metadata, tenant-scoped reads and
-the composite message/conversation ownership constraint. An unset application
-URL is explicitly a migration-only run; it does not verify RLS. Never point the
-suite at production or valuable data. No credentials or secret values belong
-in this repository. Checks are not evidence of execution until run and recorded.
+the composite message/conversation ownership constraint. The caller identity
+must be set by trusted server context using transaction-local `ngit.user_id`.
+Never point the suite at production or valuable data. No credentials or secret
+values belong in this repository. Checks are not evidence of execution until
+run and recorded.
