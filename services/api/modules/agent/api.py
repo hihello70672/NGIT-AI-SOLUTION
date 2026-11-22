@@ -1,8 +1,7 @@
-"""Authenticated REST endpoints for Personal Agent tasks and approvals."""
+"""Authenticated REST endpoints for Personal Agent tasks and approval requests."""
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-
 from services.api.security import AuthContext, SecurityError
 from services.api.modules.agent.runtime import AgentError, AgentService, public_record
 
@@ -16,15 +15,15 @@ def create_router(agent: AgentService, current_user: Any, approvals: Any | None 
     class ApprovalInput(BaseModel):
         approval_id: str = Field(min_length=1, max_length=128)
 
-    def invoke(fn, *args, **kwargs):
+    def invoke(fn, *args):
         try:
-            return fn(*args, **kwargs)
+            return fn(*args)
         except AgentError as exc:
             status = 404 if exc.code == "task_not_found" else 422
             raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message}) from exc
         except SecurityError as exc:
-            status = 401 if exc.code == "unauthenticated" else 403
-            raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message}) from exc
+            raise HTTPException(status_code=401 if exc.code == "unauthenticated" else 403,
+                                detail={"code": exc.code, "message": exc.message}) from exc
 
     @router.get("/tools")
     def list_tools(context: AuthContext = Depends(current_user)):
@@ -36,7 +35,7 @@ def create_router(agent: AgentService, current_user: Any, approvals: Any | None 
         return public_record(invoke(agent.submit, context, body.goal))
 
     @router.get("/tasks")
-    def history(limit: int = 50, context: AuthContext = Depends(current_user)):
+    def history(limit: int = Query(default=50, ge=1, le=100), context: AuthContext = Depends(current_user)):
         return {"tasks": [public_record(item) for item in invoke(agent.history, context, limit)]}
 
     @router.get("/tasks/{task_id}")
@@ -52,7 +51,8 @@ def create_router(agent: AgentService, current_user: Any, approvals: Any | None 
         return public_record(invoke(agent.reject, context, task_id))
 
     @router.post("/approvals", status_code=201)
-    def request_approval(task_id: str, context: AuthContext = Depends(current_user)):
+    def request_approval(task_id: str = Query(min_length=1, max_length=128),
+                         context: AuthContext = Depends(current_user)):
         if approvals is None:
             raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval request service is unavailable"})
         record = invoke(agent.get, context, task_id)

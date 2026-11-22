@@ -11,7 +11,8 @@ class AgentTests(unittest.TestCase):
         self.audit = AuditLogger()
         policies = PolicyEngine()
         for name in ("filesystem.write", "browser.navigate", "computer.perform"):
-            policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), True, True))
+            policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}),
+                                     approval_required=True, restricted=True))
         self.approvals = ApprovalEngine()
         self.permissions = RestrictedActionManager(policies, self.approvals, EmergencyStop(self.audit), self.audit)
         self.context = AuthContext("alice", frozenset({"user"}))
@@ -22,8 +23,7 @@ class AgentTests(unittest.TestCase):
             BrowserInterface(reader=lambda url: "page text", navigator=lambda url: {"url": url}),
             ComputerControlInterface(lambda action, args: {"action": action}))
 
-    def tearDown(self):
-        self.temp.cleanup()
+    def tearDown(self): self.temp.cleanup()
 
     def test_planner_is_explicit_and_rejects_ambiguous_goals(self):
         self.assertEqual(AgentPlanner().plan("alice", "read file notes.txt").steps[0].tool_name, "filesystem.read")

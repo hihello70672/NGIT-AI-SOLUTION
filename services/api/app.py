@@ -9,7 +9,7 @@ from psycopg.errors import UniqueViolation
 from services.api.config import Settings
 from services.api.database import Database
 from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
-from services.api.security import SecurityError, create_default_security, error_payload
+from services.api.security import SecurityError, create_default_security, error_payload, Policy
 from services.api.services.users import UserService
 from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -39,10 +39,14 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
 app.include_router(create_memory_router(db, current_user), prefix=settings.api_prefix)
-# The workspace must be explicitly provisioned. Do not expose agent filesystem
-# access against the API process working directory by default.
 _agent_workspace = os.environ.get("NGIT_AGENT_WORKSPACE", "").strip()
 if _agent_workspace:
+    # Agent capability policies are registered in the shared security engine,
+    # not duplicated inside the agent module. Approval is mandatory for each
+    # side-effecting capability and is checked against task-step resource IDs.
+    for _tool_name in ("filesystem.write", "browser.navigate", "computer.perform"):
+        policies.register(Policy(f"agent.tool.{_tool_name}", frozenset({"user", "admin"}),
+                                 approval_required=True, restricted=True))
     _agent_tools = ToolRegistry()
     _agent = build_agent(_agent_tools, actions, _agent_workspace)
     app.include_router(create_agent_router(_agent, current_user, approvals), prefix=settings.api_prefix)
