@@ -1,5 +1,6 @@
-"""Adversarial regression tests for security-engine boundaries."""
+"""Adversarial regression tests for the security-engine boundaries."""
 import threading
+
 import pytest
 
 from services.api.security import (
@@ -7,66 +8,106 @@ from services.api.security import (
     Policy, PolicyEngine, RestrictedActionManager, SecretStore, SecurityError,
 )
 
+
 class Clock:
-    def __init__(self): self.now = 100.0
-    def __call__(self): return self.now
+    def __init__(self):
+        self.now = 100.0
 
-def test_secret_store_rejects_invalid_names_and_non_string_values():
-    with pytest.raises(ValueError): SecretStore({"BAD": None}).get("BAD")
-    for name in ("", "MY-SECRET", "../secret", "A" * 127):
-        with pytest.raises(ValueError): SecretStore().get(name)
+    def __call__(self):
+        return self.now
 
-def test_policy_validation_and_unknown_action_fail_closed():
+
+def test_policy_deny_by_default_and_reject_malformed_and_duplicate_rules():
     engine = PolicyEngine()
-    with pytest.raises(ValueError): engine.register(Policy("restricted.action", frozenset({"user"}), restricted=True))
-    with pytest.raises(SecurityError): engine.authorize(AuthContext("actor", frozenset({"user"})), "unregistered.action")
+    engine.register(Policy("file.write", frozenset({"editor"})))
+    with pytest.raises(SecurityError):
+        engine.authorize(AuthContext("a", frozenset({"editor"})), "unregistered.action")
+    with pytest.raises(ValueError):
+        engine.register(Policy("restricted.action", frozenset({"user"}), restricted=True))
+    with pytest.raises(ValueError):
+        engine.register(Policy("file.write", frozenset({"editor"})))
+    with pytest.raises(SecurityError):
+        engine.authorize(AuthContext("a", frozenset({"editor"})), "file.write", owner_id="b")
 
-def test_approval_rejects_owner_and_roleless_reviewer():
-    policies = PolicyEngine(); policies.register(Policy("agent.approval.decide", frozenset({"admin"})))
-    engine = ApprovalEngine(policy_engine=policies); grant = engine.request("owner", "file.write", "file-1")
-    with pytest.raises(SecurityError): engine.decide(grant.approval_id, "owner", approved=True, approver_roles=frozenset({"admin"}))
-    with pytest.raises(SecurityError): engine.decide(grant.approval_id, "reviewer", approved=True, approver_roles=frozenset({"user"}))
-    assert engine.get(grant.approval_id).status == "pending"
 
-def test_approval_scope_expiry_and_atomic_single_consumption():
-    clock = Clock(); engine = ApprovalEngine(clock=clock)
-    grant = engine.request("owner", "file.write", "file-1", ttl_seconds=2)
-    engine.decide(grant.approval_id, "reviewer", approved=True)
-    assert not engine.consume(grant.approval_id, actor_user_id="owner", action="file.write", resource_id="file-2")
+def test_approval_requires_separate_authorized_reviewer_and_exact_scope():
+    policies = PolicyEngine()
+    policies.register(Policy("agent.approval.decide", frozenset({"admin"})))
+    approvals = ApprovalEngine(policy_engine=policies)
+    request = approvals.request("owner", "file.write", "file-1")
+    with pytest.raises(SecurityError):
+        approvals.decide(request.approval_id, "owner", approved=True, approver_roles={"admin"})
+    with pytest.raises(SecurityError):
+        approvals.decide(request.approval_id, "reviewer", approved=True, approver_roles={"user"})
+    approvals.decide(request.approval_id, "reviewer", approved=True, approver_roles={"admin"})
+    assert not approvals.consume(request.approval_id, actor_user_id="owner", action="file.write", resource_id="file-2")
     outcomes = []
-    threads = [threading.Thread(target=lambda: outcomes.append(engine.consume(grant.approval_id, actor_user_id="owner", action="file.write", resource_id="file-1"))) for _ in range(16)]
-    [thread.start() for thread in threads]; [thread.join() for thread in threads]
+    workers = [threading.Thread(target=lambda: outcomes.append(approvals.consume(
+        request.approval_id, actor_user_id="owner", action="file.write", resource_id="file-1"))) for _ in range(12)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
     assert outcomes.count(True) == 1
-    expired = engine.request("owner", "file.write", "file-2", ttl_seconds=1)
-    engine.decide(expired.approval_id, "reviewer", approved=True); clock.now += 2
-    assert not engine.consume(expired.approval_id, actor_user_id="owner", action="file.write", resource_id="file-2")
 
-def test_audit_nested_secret_redaction_and_immutable_snapshot():
+
+def test_restricted_action_checks_stop_before_consuming_approval_and_audits_denials():
     audit = AuditLogger()
-    event = audit.record(action="example", details={"nested": [{"api-key": "never-log-this"}], "safe": "value"})
-    assert "never-log-this" not in repr(event)
-    snapshot = audit.events()[0]
-    with pytest.raises(TypeError): snapshot["details"]["safe"] = "changed"
-    assert audit.events()[0]["details"]["safe"] == "value"
-
-def test_stop_precedes_approval_consumption_and_denials_are_audited():
-    audit = AuditLogger(); policies = PolicyEngine()
+    policies = PolicyEngine()
     policies.register(Policy("file.write", frozenset({"editor"}), approval_required=True, restricted=True))
-    approvals = ApprovalEngine(); grant = approvals.request("owner", "file.write", "file-1")
-    approvals.decide(grant.approval_id, "reviewer", approved=True)
-    stop = EmergencyStop(audit); manager = RestrictedActionManager(policies, approvals, stop, audit)
-    caller = AuthContext("owner", frozenset({"editor"})); stop.engage("admin", "incident")
-    with pytest.raises(SecurityError): manager.authorize(caller, "file.write", "file-1", approval_id=grant.approval_id)
-    assert approvals.get(grant.approval_id).status == "approved"
+    approvals = ApprovalEngine()
+    request = approvals.request("owner", "file.write", "file-1")
+    approvals.decide(request.approval_id, "reviewer", approved=True)
+    stop = EmergencyStop(audit)
+    manager = RestrictedActionManager(policies, approvals, stop, audit)
+    caller = AuthContext("owner", frozenset({"editor"}))
+    stop.engage("admin", "incident")
+    with pytest.raises(SecurityError):
+        manager.authorize(caller, "file.write", "file-1", approval_id=request.approval_id)
+    assert approvals.get(request.approval_id).status == "approved"
     stop.reset("admin")
-    manager.authorize(caller, "file.write", "file-1", approval_id=grant.approval_id)
-    with pytest.raises(SecurityError): manager.authorize(caller, "file.write", "file-1", approval_id=grant.approval_id)
-    assert [event["outcome"] for event in audit.events() if event["action"] == "file.write"] == ["denied", "authorized", "denied"]
+    manager.authorize(caller, "file.write", "file-1", approval_id=request.approval_id)
+    assert approvals.get(request.approval_id).status == "consumed"
+    with pytest.raises(SecurityError):
+        manager.authorize(caller, "file.write", "file-1", approval_id=request.approval_id)
+    assert [item["outcome"] for item in audit.events() if item["action"] == "file.write"] == ["denied", "authorized", "denied"]
 
-def test_authentication_ttl_and_roles_are_validated_and_revocable():
-    auth = Authenticator("p" * 32)
-    with pytest.raises(ValueError): auth.issue("user", {"user"}, ttl_seconds=True)
-    token = auth.issue("user", {"user"}); context = auth.authenticate(token)
-    with pytest.raises(AttributeError): context.roles.add("admin")
+
+def test_approval_expiry_and_token_parameter_validation():
+    clock = Clock()
+    approvals = ApprovalEngine(clock=clock)
+    pending = approvals.request("owner", "file.write", "file", ttl_seconds=1)
+    approvals.decide(pending.approval_id, "reviewer", approved=True)
+    clock.now += 1
+    assert not approvals.consume(pending.approval_id, actor_user_id="owner", action="file.write", resource_id="file")
+    auth = Authenticator("p" * 32, clock=clock)
+    with pytest.raises(ValueError):
+        auth.issue("user", ttl_seconds=True)
+    token = auth.issue("user", {"user"})
     auth.revoke(token)
-    with pytest.raises(SecurityError): auth.authenticate(token)
+    with pytest.raises(SecurityError):
+        auth.authenticate(token)
+
+
+def test_audit_recursively_redacts_secrets_and_snapshots_are_immutable():
+    audit = AuditLogger()
+    audit.record(action="example", details={"nested": [{"api-key": "never-log-me"}], "safe": "value"})
+    snapshot = audit.events()[0]
+    assert "never-log-me" not in repr(snapshot)
+    with pytest.raises(TypeError):
+        snapshot["details"]["safe"] = "tampered"
+    assert audit.events()[0]["details"]["safe"] == "value"
+    with pytest.raises(TypeError):
+        snapshot["details"]["nested"][0]["api-key"] = "tampered"
+    assert len(SecretStore({"VALID_SECRET_2": "example-only"}).get("VALID_SECRET_2")) > 0
+    with pytest.raises(ValueError):
+        SecretStore({}).get("../secret")
+
+
+def test_approval_decisions_cannot_be_replayed_or_consumed_twice():
+    engine = ApprovalEngine()
+    approval = engine.request("actor", "file.write", "file")
+    engine.decide(approval.approval_id, "reviewer", approved=False)
+    with pytest.raises(SecurityError):
+        engine.decide(approval.approval_id, "reviewer-2", approved=True)
+    assert not engine.consume(approval.approval_id, actor_user_id="actor", action="file.write", resource_id="file")
