@@ -1,47 +1,44 @@
 # Module dependency map
 
-This map describes approved service-contract dependencies, not a claim that every module or integration is implemented. Consult [`STATUS.md`](STATUS.md) for repository evidence. Dependencies do not permit importing another module’s private implementation or writing to its tables.
+This map describes approved service-contract dependencies, not proof that every module or integration is implemented. Consult [`STATUS.md`](STATUS.md) for repository evidence. An arrow means a module may call a published contract; it does not authorize access to private implementation or another module's tables.
 
 ```text
-core configuration, contracts, database, shared security/audit
- ├── identity, users
- │    └── authenticated caller context for downstream user-scoped operations
- ├── tasks (shared submission/status/failure interface; runner undecided)
- └── domain modules
-      ├── brain, models
-      │    ├── memory, knowledge (retrieval/ingestion contracts)
-      │    ├── language (language/style capabilities)
-      │    └── providers (optional routing/fallback only)
-      ├── agent
-      │    ├── shared security/approval and audit
-      │    ├── tasks (when asynchronous execution is adopted)
-      │    └── registered tools/adapters (browser, filesystem, computer)
-      ├── language
-      │    └── voice/vision/remote-control interfaces (placement open)
-      ├── media
-      │    └── presentations
-      │         └── presenter capability (distinct contract; placement open)
-      ├── newsroom ──> media/presentations as needed
-      ├── education ──> brain/language/presentations as needed
-      ├── cybersecurity ──> shared security, authorization, audit
-      ├── billing ──> identity/users, shared security, audit
-      ├── providers ──> shared secret/config interfaces; optional adapters
-      └── administration ──> identity/users, models, knowledge, billing,
-                             service controls, shared security, audit
+identity/users ───────────────► core/security
+core/security ────────────────► audit
+all user-scoped modules ──────► server-derived caller context
+all long-running modules ────► tasks (after the shared contract is established)
 
-apps/web ──> documented backend API contracts only
+brain ────────────────────────► models
+brain ────────────────────────► memory/knowledge (approved retrieval contracts)
+models ───────────────────────► providers (optional adapter)
+brain ────────────────────────► providers (optional routing/fallback)
+
+agent ────────────────────────► core/security, audit
+agent ────────────────────────► permission-checked browser/computer tool interfaces
+
+language ────────────────────► brain/media/presentations through contracts
+media ────────────────────────► models/providers through approved interfaces
+presentations ───────────────► media assets
+presentations ───────────────► presenter capability (placement open; contract distinct)
+
+newsroom ─────────────────────► approved ingestion/verification, language, presentations
+education ────────────────────► brain, language, presentations
+cybersecurity ────────────────► core/security, audit, task interfaces
+
+billing ──────────────────────► identity/users, audit
+administration ───────────────► identity/users, core/security, audit
+apps/web ─────────────────────► documented backend API contracts only
 ```
 
 ## Dependency rules
 
-1. The frontend consumes public API contracts only; it never connects to PostgreSQL or holds provider credentials.
-2. Identity establishes caller context but does not replace per-module owner checks.
-3. Shared security and audit are infrastructure. Domain modules must not implement competing authorization or approval engines; admin UI cannot bypass backend policy.
-4. Brain and core capabilities must retain local/self-hosted operation. Provider, search, browser, and payment adapters are optional and enabled only through approved configuration.
-5. Media, presentations, and Presenter coordinate through contracts; final placement/storage choices remain open.
-6. Module persistence is private. Use published typed services for cross-module operations and keep user ownership enforced at every read/write.
-7. Do not add distributed services or a broker without an approved need. Agree on shared interfaces before downstream feature work and preserve the phase order.
+1. `apps/web` calls documented public APIs only. It does not connect to PostgreSQL, hold provider credentials, or enforce authorization, billing, or user isolation.
+2. Identity establishes authenticated caller context; each user-scoped module still enforces ownership for its own reads and writes. Client-supplied IDs are not ownership evidence.
+3. Shared security and audit are infrastructure contracts. Domain modules must not create competing authorization or approval engines, and administrative UI cannot bypass backend policy.
+4. Brain retains local/self-hosted operation. Provider, search, browser, and payment adapters are optional and enabled only through approved configuration; no external AI API is a core dependency.
+5. Media, presentations, and presenter integrations use contracts. Presenter placement and artifact storage remain open decisions.
+6. Module persistence is private. Cross-module operations use typed published services, not direct imports of private implementation or writes to another module's tables.
+7. Do not add distributed services, a message broker, or an undocumented event bus without approved need. Establish shared task acceptance/status/failure semantics before dependent long-running work.
+8. Preserve approved phase ordering and resolve cross-module contract changes through the Chief Architect.
 
-## Governance
-
-The Chief Architect approves changes to shared contracts or module boundaries. See [shared protocols](interfaces/SHARED_PROTOCOLS.md) and [architecture open decisions](ARCHITECTURE.md#open-decisions).
+See [shared protocols](interfaces/SHARED_PROTOCOLS.md) and [architecture open decisions](ARCHITECTURE.md#open-decisions).
