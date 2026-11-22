@@ -1,43 +1,31 @@
-# Project status — Phases 1–3
+# Project status — Phases 1–2
 
-This status records repository evidence, not proof of runtime behavior. API/database suites and the web suite have not been run in this task; no passing result is claimed.
+This status records repository evidence. Tests have not been run in this task, and no passing result is claimed.
 
-## Phase 1 — Foundation, architecture, database, local environment
+## Phase 1 — Foundation, architecture, database, and local environment
 
-Foundation documentation, Docker Compose PostgreSQL service, ordered SQL migrations, seed data, schema checks, and ERD are committed. The `ngit` schema includes users and roles, user-scoped conversations, messages, memory, billing, optional provider configuration, media/video and presentation metadata, audit logs, supporting indexes, composite ownership constraints, and row-level security policies for user-owned tables. Migration `0003` hardens role-assignment RLS.
+**Built/committed:** Repository foundation and architecture documentation, the approved phase plan and module boundaries, local PostgreSQL Docker Compose setup and usage documentation, environment examples, ordered SQL migrations and seed data, database schema checks/tests, and ERD documentation. The database schema covers users and roles, user-scoped conversations/messages/memory, billing, optional provider configuration, media/presentation metadata, audit logs, indexes, ownership constraints, and row-level security; migration `0003` hardens role-assignment RLS.
 
-The database migration tooling remains deliberately plain ordered SQL. Apply files in `services/api/db/migrations/` in lexicographic order on fresh PostgreSQL 16+. Database/RLS tests and Compose lifecycle still require execution. Migration presence does not establish that the API uses the schema.
+**Remaining:** Execute migrations on a fresh PostgreSQL 16+ database, run schema/RLS tests using a non-owner, non-superuser application role, verify cross-user isolation, and validate Compose startup and database lifecycle. Confirm the API's database integration against the migrations rather than inferring it from file presence.
 
-## Phase 2 — Authentication, security, API, user management
+**Blocker/risk:** Migration integrity is unresolved. A prior task accidentally replaced and restored `services/api/db/migrations/0001_initial_schema.sql` with content that may not preserve the original migration. Review and correct it against the intended schema before treating Phase 1 database deliverables as complete. The SQL migrations are deliberately plain ordered SQL; apply them lexicographically.
 
-The FastAPI service exposes versioned REST endpoints for registration, login, logout, current-user profile read/update, protected Brain endpoints, memory, and optional agent integration. Request validation, request IDs, safe error handling, OpenAPI, password hashing, opaque expiring/revocable bearer tokens, role and ownership policies, approvals, and audit primitives are included. User identity persistence uses PostgreSQL-backed services and the existing connection pool with transaction-local user context for RLS-scoped access. Password and token peppers must be configured in the environment; no real secrets are committed.
+## Phase 2 — Authentication, security, API, and user management
 
-Token/approval/audit state remains process-local; only a single worker is supported until an approved shared adapter exists. Background-task support is an in-process interface, not durable execution. Existing endpoints are request/response, so no WebSocket was justified or added. External AI APIs remain optional. API tests and live database integration have not been executed in this task.
+**Built/committed:** The FastAPI service includes versioned registration/login/logout and current-user profile endpoints, protected Brain routes, memory and optional agent integration, request validation/IDs, safe error handling, password hashing, expiring/revocable bearer tokens, default-deny role and ownership checks, approval and audit primitives, and user-management services. The API uses PostgreSQL-backed identity services and transaction-local user context for RLS. API/security tests and usage documentation are present.
 
-## Phase 3 — Web application foundation
+**Remaining:** Run API/unit and live database integration tests; verify migration compatibility, authentication persistence, transaction-local RLS context, cross-user access isolation, and complete authorization on sensitive Brain/tool actions. Token/approval/audit state remains process-local and supports only a single worker until an approved shared persistent adapter is implemented. Background tasks are in-process, not durable. Configure password/token peppers through environment secrets before deployment; no real secrets belong in source control.
 
-`apps/web` contains a responsive React/Vite application with the Inter dark design system and green brand accents, sign-in/registration, authenticated dashboard shell, profile settings, and role-aware user-management view. Existing shared API client is consumed for login, registration, session validation, profile update, logout, and administrator user listing; the UI treats backend authorization as authoritative and includes loading, empty, error, and retry states. UI tests cover sign-in errors, profile updates/logout, authorization denial, empty/loading/error states, and expired sessions. Tests were not run in this task, so their results remain unverified.
-
-## Remaining validation and integration
-
-- Run API/unit and web suites and record exact commands/outcomes.
-- Run SQL migrations and RLS tests on disposable PostgreSQL using a non-owner, non-superuser app role; verify cross-user isolation.
-- Validate Compose startup and API/database lifecycle.
-- Integrate action-specific authorization and caller context into Brain before sensitive generation/tool actions.
-- Verify shared security persistence and secret-vault integration before multi-worker or production use.
-
-External AI endpoints remain optional; no credential values belong in source control.
+**Blocker/risk:** External AI integrations are optional and unconfigured. Shared persistence for security state and durable background execution are not implemented. Confirm action-specific authorization and caller context before enabling sensitive generation or tool actions. Existing endpoints are request/response; no WebSocket was added.
 
 ## Validation record
 
-No tests were run while authoring the web application update. Committed tests and database-dependent behavior remain unverified; no passing result is claimed.
+Tests have not been run in this task. API, database/RLS, and web test results remain unverified; no passing result is claimed. Compose startup and migration runtime behavior have also not been verified here.
 
-**Migration integrity warning:** A prior task update accidentally replaced and restored `services/api/db/migrations/0001_initial_schema.sql` with content that may not preserve the original migration. Review and correct that migration before treating Phase 1 database deliverables as complete.
+## Phase sequence and boundaries
 
-## Phase sequence
+See [PHASE_PLAN.md](PHASE_PLAN.md) for the approved 12-phase delivery sequence and integration gates. See [DEPENDENCY_MAP.md](DEPENDENCY_MAP.md), [AGENT_ASSIGNMENTS.md](AGENT_ASSIGNMENTS.md), and [interfaces/SHARED_PROTOCOLS.md](interfaces/SHARED_PROTOCOLS.md) for module dependencies and boundary rules.
 
-See [PHASE_PLAN.md](PHASE_PLAN.md) for the approved 12-phase sequence and integration gates.
+## Note
 
-## Approval and boundaries
-
-See [DEPENDENCY_MAP.md](DEPENDENCY_MAP.md), [AGENT_ASSIGNMENTS.md](AGENT_ASSIGNMENTS.md), and [interfaces/SHARED_PROTOCOLS.md](interfaces/SHARED_PROTOCOLS.md) for module-contract dependencies and boundary rules. The current documentation notes frontend framework/toolchain details remain an architecture decision; this implementation uses the existing repository React/Vite setup rather than selecting a new shared architecture.
+The repository contains later-phase web implementation, but this document's status scope is phases 1–2. The web app's tests were not run either. Migration-integrity warning above remains the concrete known blocker for accepting Phase 1 database work.
