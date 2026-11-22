@@ -43,15 +43,18 @@ class Policy:
 
 
 class SecretStore:
-    """Environment-backed secret lookup boundary; values are never logged."""
+    """Environment-backed secret lookup; values are never logged."""
 
     def __init__(self, environ: Mapping[str, str] | None = None):
         self._environ = os.environ if environ is None else environ
 
     def get(self, name: str) -> str | None:
-        if not isinstance(name, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,126}", name):
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,126}", name):
             raise ValueError("invalid secret name")
-        return self._environ.get(name)
+        value = self._environ.get(name)
+        if value is not None and not isinstance(value, str):
+            raise ValueError("secret values must be strings")
+        return value
 
 
 class Authenticator:
@@ -144,7 +147,7 @@ class AuditLogger:
                  "occurred_at": datetime.now(timezone.utc).isoformat(), "details": self._safe(details or {})}
         with self._lock:
             self._events.append(copy.deepcopy(event))
-            return copy.deepcopy(event)
+        return copy.deepcopy(event)
 
     def events(self) -> tuple[Mapping[str, Any], ...]:
         def freeze(value):
@@ -154,11 +157,11 @@ class AuditLogger:
                 return tuple(freeze(item) for item in value)
             return value
         with self._lock:
-            return tuple(freeze(copy.deepcopy(item)) for item in self._events)
+            return tuple(freeze(copy.deepcopy(event)) for event in self._events)
 
 
 class PolicyEngine:
-    """Allow-list role and ownership authorization, denying unknown actions."""
+    """Allow-list RBAC and ownership authorization; unknown actions deny."""
 
     def __init__(self, policies: Mapping[str, Policy] | None = None):
         self._policies: dict[str, Policy] = {}
@@ -169,9 +172,7 @@ class PolicyEngine:
     def _validate(policy: Policy) -> None:
         if not isinstance(policy, Policy) or not isinstance(policy.action, str) or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,126}", policy.action):
             raise ValueError("invalid policy action")
-        if not isinstance(policy.roles, frozenset) or any(
-            not isinstance(role, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", role) for role in policy.roles
-        ):
+        if not isinstance(policy.roles, frozenset) or any(not isinstance(role, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", role) for role in policy.roles):
             raise ValueError("invalid policy roles")
         if policy.restricted and not policy.approval_required:
             raise ValueError("restricted policies must require approval")
@@ -279,7 +280,7 @@ class EmergencyStop:
 
 
 class RestrictedActionManager:
-    """Single-use approval gate; invoke immediately before the protected side effect."""
+    """Single-use approval gate, immediately before a protected side effect."""
 
     def __init__(self, policies: PolicyEngine, approvals: ApprovalEngine, stop: EmergencyStop, audit: AuditLogger):
         self._policies, self._approvals, self._stop, self._audit = policies, approvals, stop, audit
@@ -295,9 +296,8 @@ class RestrictedActionManager:
             ):
                 raise SecurityError("approval_required", "A valid approval is required")
         except SecurityError as exc:
-            self._audit.record(action=action if isinstance(action, str) else "unknown",
-                               actor_user_id=getattr(context, "user_id", None), resource_id=resource_id,
-                               request_id=request_id, outcome="denied", details={"error_code": exc.code})
+            self._audit.record(action=action if isinstance(action, str) else "unknown", actor_user_id=getattr(context, "user_id", None),
+                               resource_id=resource_id, request_id=request_id, outcome="denied", details={"error_code": exc.code})
             raise
         self._audit.record(action=action, actor_user_id=context.user_id, resource_id=resource_id,
                            request_id=request_id, outcome="authorized")
