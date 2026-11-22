@@ -54,8 +54,7 @@ def test_primary_local_runtime_generates_response():
     registry = ModelRegistry()
     registry.register(definition("local", runtime))
     result = asyncio.run(BrainService(registry).respond(BrainRequest("How are you?")))
-    assert result.text == "answer"
-    assert result.model_id == "local"
+    assert result.text == "answer" and result.model_id == "local"
     assert result.intent == "question" and result.confidence >= 0.35
     assert not result.fallback_used
 
@@ -83,7 +82,7 @@ def test_disabled_fallback_is_not_called():
     assert not fallback.calls
 
 
-def test_empty_input_low_confidence_and_invalid_generation_limits_are_rejected():
+def test_input_confidence_and_generation_limits_are_validated():
     service = BrainService(ModelRegistry())
     with pytest.raises(BrainError) as empty:
         asyncio.run(service.respond(BrainRequest("", min_confidence=0)))
