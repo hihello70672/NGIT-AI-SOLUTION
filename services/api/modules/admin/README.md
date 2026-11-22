@@ -1,0 +1,5 @@
+# Administration module
+
+The module provides authenticated REST endpoints for user and role management, model-provider configuration listing, knowledge/memory administration, learning-request and report views, permission-rule administration, service controls, analytics, audit events, and emergency stop/reset. Every operation is checked against `PolicyEngine`; caller identity is supplied only by the authenticated API dependency. Restricted actions are delegated to `RestrictedActionManager` for stop-state and exact-scope approval checks.
+
+Persistent rules and service control state use migration `0006_admin_control.sql`; existing user, role, provider, memory, audit, and usage records are reused. The security engines, approvals, and emergency-stop gate remain process-local as documented in `services/api/security.py`; deploy a single API worker until shared persistence is implemented. Service-control state records administrative intent; deployment-specific executors must consume it and enforce safe rollout semantics.
