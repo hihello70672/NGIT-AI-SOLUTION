@@ -309,7 +309,7 @@ class RestrictedActionManager:
 
 
 def create_default_security():
-    """Build default process-local engines for the API entrypoint."""
+    """Build default process-local security engines for the API entrypoint."""
     audit = AuditLogger()
     policies = PolicyEngine()
     policies.register(Policy("profile.read", frozenset({"user", "admin"})))
