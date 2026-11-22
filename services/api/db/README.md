@@ -1,14 +1,14 @@
 # Database
 
-The database migration tooling decision remains open in the architecture plan. Phase 1 provides ordered PostgreSQL SQL migrations in `migrations/` and SQL integration checks in `tests/`; it does not introduce an ORM or migration framework.
+The migration-tooling decision remains open. Phase 1 uses ordered PostgreSQL SQL migrations under `migrations/` and SQL integration checks under `tests/`; no ORM is introduced. Apply all migrations lexically to a fresh PostgreSQL 16+ database. Migration 0004 completes domain tables missing from early 0001 versions and preserves existing installations; all migrations are idempotent where practical.
 
-For local development, start PostgreSQL with `docker compose up -d db` from the repository root (copy `.env.example` to `.env` first). Apply the SQL files to a fresh database in lexical order:
+For local development, start PostgreSQL with `docker compose up -d db` from the repository root (copy `.env.example` to `.env` first). Apply migrations and run checks against a disposable database:
 
 ```sh
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f services/api/db/migrations/0001_initial_schema.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f services/api/db/migrations/0002_seed_reference_data.sql
+for migration in services/api/db/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
+DATABASE_URL=postgresql://app_user:app_password@localhost:5432/ngit_test sh services/api/db/tests/run.sh
 ```
 
-Run `DATABASE_URL=... sh services/api/db/tests/run.sh` against a disposable empty database. The checks require `psql` and PostgreSQL. Set `ngit.user_id` transaction-locally from trusted authenticated server context before accessing RLS-protected tables. Never accept ownership context from client input. The application connection must be non-superuser and not own the protected tables.
+The application role must be a non-superuser and must not own protected tables; `FORCE ROW LEVEL SECURITY` alone cannot constrain superusers. API code sets `ngit.user_id` transaction-locally from authenticated server context, never client input. Provider configurations store opaque secret-manager references, not credentials. External AI integrations are optional.
 
-Do not place provider credentials in PostgreSQL or source control. `provider_configs.credential_ref` is only an opaque reference; external AI providers remain optional.
+The existing baseline migration is preserved; review its historical source before production acceptance. See [ERD](../../../docs/ERD.md) and [test instructions](tests/README.md).

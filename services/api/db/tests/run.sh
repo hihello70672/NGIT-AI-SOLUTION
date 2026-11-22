@@ -1,8 +1,7 @@
 #!/bin/sh
 set -eu
 : "${DATABASE_URL:?Set DATABASE_URL to a disposable PostgreSQL database}"
-# Migrations run on an empty disposable database; tests run with the database
-# URL's non-superuser, non-table-owner application role for FORCE RLS coverage.
+# Run as a non-superuser, non-table-owner application-equivalent role.
 for migration in services/api/db/migrations/*.sql; do
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
 done
