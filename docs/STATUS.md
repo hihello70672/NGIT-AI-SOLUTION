@@ -12,7 +12,7 @@ This status records implementation evidence only. Tests have not been run in thi
 
 ## Phase 2 — Authentication, security, API, users
 
-**Built/committed:** Versioned FastAPI routes for register/login/logout and current-user profile read/update, with the existing server-side opaque token and RBAC/approval services wired to PostgreSQL-backed user records. Caller identity and active status/roles are reloaded server-side per request. Passwords use scrypt and a deployment-injected pepper; request schemas reject unknown fields; safe errors and request correlation IDs are standardized. Existing Brain routes require authenticated callers. The psycopg adapter applies `ngit.user_id` transaction-locally for user-scoped SQL. Existing module services and task interface are retained; background tasks remain synchronous/in-process and no unjustified WebSocket was added. OpenAPI describes the REST interface. API/config/database tests were added or extended; tests were not executed here.
+**Built/committed:** Versioned FastAPI routes for register/login/logout and current-user profile read/update, with the existing server-side opaque token and RBAC/approval services wired to PostgreSQL-backed user records. Caller identity and active status/roles are reloaded server-side per request. Passwords use scrypt and a deployment-injected pepper; request schemas reject unknown fields; safe errors and request correlation IDs are standardized. Existing Brain routes require authenticated callers. The psycopg adapter applies `ngit.user_id` transaction-locally for user-scoped SQL. Existing module services and task interface are retained; background tasks remain synchronous/in-process and no unjustified WebSocket was added. OpenAPI describes the REST interface. API/config/database tests were added or extended; tests have not been executed.
 
 **Runtime boundaries:** Opaque tokens, approvals, emergency-stop state, and audit events are process-local, not durable or multi-worker safe. Use one worker only until approved persistence is introduced. Deployment must set unique strong `AUTH_TOKEN_PEPPER` and `PASSWORD_PEPPER` secrets; no secret is committed. `/health` checks process liveness only, not database readiness.
 
@@ -50,7 +50,7 @@ The Brain runtime and deterministic evaluation suite were already present at the
 
 ## Phase 4 implementation record
 
-The Personal Agent implementation extends the existing agent module and shared security approval engine. Tool actions are explicit; no arbitrary commands are inferred. Approval requests require a distinct reviewer, and a matching grant is consumed once. Task history and approval state remain process-local; execution is synchronous and not a durable worker.
+The Personal Agent implementation extends the existing agent module and shared security approval engine. Tool actions are explicit; the planner does not infer arbitrary commands. Approval requests require a distinct reviewer, and a matching grant is consumed once. Task history and approval state remain process-local; execution is synchronous and not a durable worker.
 
 ## Phase 2 security implementation note
 
