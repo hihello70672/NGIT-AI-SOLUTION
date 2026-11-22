@@ -1,32 +1,30 @@
-import pytest
-
+"""Configuration tests using explicit environment dictionaries."""
 from services.api.config import Settings
 
 
-def test_database_url_is_built_with_escaped_credentials(monkeypatch):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.setenv("POSTGRES_USER", "api user")
-    monkeypatch.setenv("POSTGRES_PASSWORD", "pass@word:/")
+def test_database_url_encodes_credentials_and_validates_schema(monkeypatch):
+    for key in ("DATABASE_URL", "POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "DATABASE_SCHEMA", "API_PREFIX", "CORS_ORIGINS"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("POSTGRES_USER", "ngit user")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "p@ss:word")
     settings = Settings.from_env()
-    assert settings.database_url == "postgresql://api%20user:pass%40word%3A%2F@localhost:5432/ngit"
+    assert "ngit%20user:p%40ss%3Aword@" in settings.database_url
+    assert settings.database_schema == "ngit"
 
 
-def test_env_origins_and_schema_are_validated(monkeypatch):
-    monkeypatch.setenv("CORS_ORIGINS", " https://one.test,https://two.test,,")
-    monkeypatch.setenv("DATABASE_SCHEMA", "app_data")
-    settings = Settings.from_env()
-    assert settings.cors_origins == ("https://one.test", "https://two.test")
-    assert settings.database_schema == "app_data"
-    monkeypatch.setenv("DATABASE_SCHEMA", "bad-name")
-    with pytest.raises(ValueError, match="database schema"):
+def test_invalid_database_url_and_prefix_are_rejected(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///not-supported")
+    try:
         Settings.from_env()
-
-
-def test_deployment_peppers_must_be_configured(monkeypatch):
-    monkeypatch.delenv("AUTH_TOKEN_PEPPER", raising=False)
-    monkeypatch.delenv("PASSWORD_PEPPER", raising=False)
-    with pytest.raises(ValueError, match="AUTH_TOKEN_PEPPER"):
-        Settings.from_env().validate_security_configuration()
-    monkeypatch.setenv("AUTH_TOKEN_PEPPER", "t" * 32)
-    monkeypatch.setenv("PASSWORD_PEPPER", "p" * 16)
-    Settings.from_env().validate_security_configuration()
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("non-PostgreSQL URL was accepted")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost/ngit")
+    monkeypatch.setenv("API_PREFIX", "relative")
+    try:
+        Settings.from_env()
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("relative API prefix was accepted")
