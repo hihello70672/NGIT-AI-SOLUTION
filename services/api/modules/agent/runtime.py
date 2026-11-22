@@ -1,5 +1,6 @@
 """Conservative Personal Agent planner and approval-gated capability execution."""
 from __future__ import annotations
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -51,7 +52,7 @@ class ToolRegistry:
 class BrowserInterface:
     """Adapter-based browser boundary; network I/O is always explicit."""
     def __init__(self, reader: Callable[[str], str] | None = None, navigator: Callable[[str], Any] | None = None):
-        self.reader=reader or (lambda url:f"Browser adapter unavailable for {urlparse(url).netloc}"); self.navigator=navigator
+        self.reader=reader or (lambda url:f"Browser adapter unavailable for {urlparse(url).netloc}");self.navigator=navigator
     @staticmethod
     def _url(value:Any)->str:
         if not isinstance(value,str) or len(value)>2048:raise AgentError("invalid_arguments","A valid HTTP(S) URL is required")
@@ -185,9 +186,25 @@ class AgentService:
         with self._lock:return sorted((r for r in self._records.values() if r.owner_id==context.user_id),key=lambda r:r.created_at,reverse=True)[:limit]
 
 def build_agent(tools:ToolRegistry,permissions:RestrictedActionManager,workspace:str|Path,browser:BrowserInterface|None=None,computer:ComputerControlInterface|None=None)->AgentService:
-    browser,computer,fs=browser or BrowserInterface(),computer or ComputerControlInterface(),FilesystemInterface(workspace)
+    if browser is None:
+        browser_reader=os.getenv("NGIT_AGENT_BROWSER_READER");browser_navigator=os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR")
+        browser=BrowserInterface(reader=_load_adapter(browser_reader) if browser_reader else None,navigator=_load_adapter(browser_navigator) if browser_navigator else None)
+    if computer is None:
+        computer_adapter=os.getenv("NGIT_AGENT_COMPUTER_ADAPTER")
+        computer=ComputerControlInterface(_load_adapter(computer_adapter) if computer_adapter else None)
+    fs=FilesystemInterface(workspace)
     for item in (ToolDefinition("browser.inspect","Read-only HTTP(S) page inspection",False,browser.inspect),ToolDefinition("browser.navigate","Approval-gated HTTP(S) browser navigation",True,browser.navigate),ToolDefinition("filesystem.read","Read UTF-8 text in the agent workspace",False,fs.read),ToolDefinition("filesystem.write","Approval-gated workspace text write",True,fs.write),ToolDefinition("computer.perform","Approval-gated computer action via configured adapter",True,computer.perform)):tools.register(item)
     return AgentService(tools,permissions)
+
+def _load_adapter(spec:str)->Callable[...,Any]:
+    """Load an optional trusted adapter from a fully qualified module:callable path."""
+    import importlib
+    if not isinstance(spec,str) or ":" not in spec:raise ValueError("adapter must use module:callable syntax")
+    module_name,attribute=spec.split(":",1)
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*",module_name) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*",attribute):raise ValueError("invalid adapter path")
+    candidate=getattr(importlib.import_module(module_name),attribute)
+    if not callable(candidate):raise ValueError("configured adapter is not callable")
+    return candidate
 
 def public_record(record:TaskRecord)->dict[str,Any]:return {"task_id":record.task_id,"goal":record.goal,"state":record.state,"created_at":record.created_at,"updated_at":record.updated_at,"plan":record.plan,"observations":record.observations,"result":record.result,"error":record.error,"pending_approval_id":record.pending_approval_id}
 __all__=["AgentError","AgentPlan","AgentPlanner","AgentService","BrowserInterface","ComputerControlInterface","FilesystemInterface","PlannedStep","TaskRecord","ToolDefinition","ToolRegistry","ToolResult","build_agent","public_record"]
