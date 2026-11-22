@@ -61,7 +61,7 @@ class OpenAICompatibleRuntime:
             choice = payload["choices"][0]
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
-                raise ValueError("empty output")
+                raise ValueError("empty response")
             return Generation(text.strip(), str(payload.get("model") or model),
                               choice.get("finish_reason"))
         except (KeyError, IndexError, TypeError, ValueError) as exc:
@@ -81,7 +81,7 @@ class ModelDefinition:
 
 
 class ModelRegistry:
-    """In-process model catalogue; durable administration remains separate."""
+    """In-process model catalog; durable administration is a separate concern."""
 
     def __init__(self) -> None:
         self._models: dict[str, ModelDefinition] = {}
@@ -211,12 +211,15 @@ class BrainService:
                         max_tokens=request.max_tokens or definition.max_tokens,
                         timeout=definition.timeout_seconds),
                     timeout=definition.timeout_seconds)
-                return BrainResponse(result.text, intent, confidence, definition.model_id,
+                if not isinstance(result, Generation) or not result.text.strip():
+                    raise RuntimeUnavailable("Model runtime returned unusable output")
+                return BrainResponse(result.text.strip(), intent, confidence, definition.model_id,
                                      definition not in candidates)
             except (RuntimeErrorBase, asyncio.TimeoutError) as exc:
                 last_error = (exc if isinstance(exc, RuntimeErrorBase)
                               else RuntimeUnavailable("Model runtime timed out"))
         raise BrainError("model_generation_failed", "No configured model could generate a response") from last_error
+
 
 __all__ = ["BrainError", "BrainRequest", "BrainResponse", "BrainService", "Generation",
            "HeuristicIntentRecognizer", "IntentRecognizer", "ModelDefinition", "ModelRegistry",

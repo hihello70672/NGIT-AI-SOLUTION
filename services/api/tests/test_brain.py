@@ -29,24 +29,24 @@ def test_intent_evaluation_examples_and_confidence_range():
     examples = [("Hi there", "greeting"), ("How does this work?", "question"),
                 ("Write a Python function", "code"), ("Summarize this", "summarization"),
                 ("Translate into Spanish", "translation"), ("Tell me a story", "general")]
-    results = [(classifier.recognize(text)) for text, _ in examples]
+    results = [classifier.recognize(text) for text, _ in examples]
     assert [label for label, _ in results] == [expected for _, expected in examples]
     assert all(0 <= score <= 1 for _, score in results)
     assert classifier.recognize("  ") == ("unknown", 0.0)
 
 
-def test_registry_priority_capability_and_validation():
+def test_registry_orders_by_priority_and_validates_definitions():
     registry = ModelRegistry()
     registry.register(model("later", FakeRuntime(), priority=20))
     registry.register(model("first", FakeRuntime(), priority=1))
-    assert [entry.model_id for entry in registry.candidates()] == ["first", "later"]
+    assert [m.model_id for m in registry.candidates()] == ["first", "later"]
     with pytest.raises(ValueError, match="already registered"):
         registry.register(model("first", FakeRuntime()))
     with pytest.raises(ValueError, match="limits"):
         registry.register(ModelDefinition("bad", FakeRuntime(), "bad", timeout_seconds=0))
 
 
-def test_primary_model_generates_answer_with_intent_and_confidence():
+def test_primary_generates_answer_with_intent_and_confidence():
     runtime = FakeRuntime("answer")
     registry = ModelRegistry()
     registry.register(model("local", runtime))
@@ -57,22 +57,21 @@ def test_primary_model_generates_answer_with_intent_and_confidence():
 
 
 def test_failed_primary_routes_to_next_registered_model():
-    first, second = FakeRuntime(fails=True), FakeRuntime("secondary")
+    failed, secondary = FakeRuntime(fails=True), FakeRuntime("secondary")
     registry = ModelRegistry()
-    registry.register(model("primary", first, priority=1))
-    registry.register(model("secondary", second, priority=2))
+    registry.register(model("primary", failed, priority=1))
+    registry.register(model("secondary", secondary, priority=2))
     result = asyncio.run(BrainService(registry).respond(BrainRequest("Explain this")))
     assert result.model_id == "secondary" and result.text == "secondary"
-    assert not result.fallback_used and len(first.calls) == len(second.calls) == 1
+    assert not result.fallback_used and len(failed.calls) == len(secondary.calls) == 1
 
 
-def test_optional_self_hosted_fallback_and_opt_out():
-    primary, fallback = FakeRuntime(fails=True), FakeRuntime("fallback answer")
+def test_optional_fallback_can_be_disabled_and_errors_are_safe():
     registry = ModelRegistry()
-    registry.register(model("local", primary))
-    service = BrainService(registry, fallback=model("self-hosted", fallback))
+    registry.register(model("local", FakeRuntime(fails=True)))
+    service = BrainService(registry, fallback=model("self-hosted", FakeRuntime("fallback")))
     result = asyncio.run(service.respond(BrainRequest("Explain this")))
-    assert result.text == "fallback answer" and result.fallback_used
+    assert result.text == "fallback" and result.fallback_used
     with pytest.raises(BrainError) as error:
         asyncio.run(service.respond(BrainRequest("Explain this", allow_fallback=False)))
     assert error.value.code == "model_generation_failed"
@@ -83,9 +82,8 @@ def test_low_confidence_invalid_limits_and_explicit_model_validation():
     registry = ModelRegistry()
     registry.register(model("local", FakeRuntime()))
     service = BrainService(registry)
-    cases = [BrainRequest("  "), BrainRequest("hello", min_confidence=0.99),
-             BrainRequest("hello", max_tokens=0), BrainRequest("hello", temperature=float("nan"))]
-    for request in cases:
+    for request in (BrainRequest("  "), BrainRequest("hello", min_confidence=0.99),
+                    BrainRequest("hello", max_tokens=0), BrainRequest("hello", temperature=float("nan"))):
         with pytest.raises(BrainError):
             asyncio.run(service.respond(request))
     with pytest.raises(BrainError) as error:
@@ -93,7 +91,7 @@ def test_low_confidence_invalid_limits_and_explicit_model_validation():
     assert error.value.code == "model_not_found"
 
 
-def test_runtime_url_rejects_embedded_credentials_and_query():
+def test_runtime_url_rejects_embedded_secrets_and_query_data():
     for url in ("https://user:pass@model.local/v1", "http://model.local/v1?token=secret"):
         with pytest.raises(ValueError):
             OpenAICompatibleRuntime(url)
