@@ -18,7 +18,8 @@ describe('NGIT Brain and Agent workflows', () => {
  });
  it('submits an Agent goal and explains the approval boundary for sensitive actions', async () => {
   await signIn(); const task = { task_id: 'task-2', goal: 'Send the report', state: 'awaiting_approval', observations: [{ state: 'approval_required', action: 'agent.tool.filesystem.write', resource_id: 'task-2:0' }] }; let submitted = false;
-  mockFetch((url, init) => { if (url.endsWith('/agent/tasks?limit=50')) return json({ tasks: submitted ? [task] : [] }); if (url.endsWith('/agent/tasks') && init?.method === 'POST') { submitted = true; return json(task, 202); } if (url.endsWith('/agent/tasks/task-2')) return json(task); return json(account); });
+  const record = { task_id: task.task_id, task };
+  mockFetch((url, init) => { if (url.endsWith('/agent/tasks?limit=50')) return json({ tasks: submitted ? [task] : [] }); if (url.endsWith('/agent/tasks') && init?.method === 'POST') { submitted = true; return json(record, 202); } if (url.endsWith('/agent/tasks/task-2')) return json(record); return json(account); });
   fireEvent.click(screen.getByRole('button', { name: 'Agent tasks' })); await screen.findByText('No tasks yet');
   fireEvent.change(screen.getByLabelText('Agent task goal'), { target: { value: 'Send the report' } }); fireEvent.click(screen.getByRole('button', { name: 'Submit goal' }));
   expect(await screen.findByText('Review required')).toBeInTheDocument(); expect(screen.getByText('agent.tool.filesystem.write')).toBeInTheDocument();
