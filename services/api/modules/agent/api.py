@@ -35,6 +35,7 @@ def create_router(agent:AgentService,current_user:Any,approvals:Any|None=None)->
         if approvals is None:raise HTTPException(status_code=503,detail={"code":"approval_unavailable","message":"Approval request service is unavailable"})
         record=invoke(agent.get,context,task_id);pending=next((x for x in record.observations if x.get("state")=="approval_required"),None)
         if record.state!="awaiting_approval" or pending is None:raise HTTPException(status_code=409,detail={"code":"approval_not_required","message":"Task has no pending approval"})
+        if record.pending_approval_id is not None:raise HTTPException(status_code=409,detail={"code":"approval_already_requested","message":"An approval grant is already associated with this task"})
         try:grant=approvals.request(context.user_id,pending["action"],pending["resource_id"])
         except SecurityError as exc:raise HTTPException(status_code=403,detail={"code":exc.code,"message":exc.message}) from exc
         record.pending_approval_id=grant.approval_id
