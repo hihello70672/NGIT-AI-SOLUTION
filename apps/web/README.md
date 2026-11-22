@@ -1,5 +1,21 @@
 # Web application
 
-`apps/web` is the sole planned frontend for this milestone. The frontend framework, package manager, and build tool remain open decisions. Add source, dependencies, and tests when those choices are approved; do not add platform-specific applications or make the browser authoritative for security, billing, or ownership.
+`apps/web` is the sole planned frontend. This implementation uses React, TypeScript, and Vite, with Vitest and Testing Library for UI tests. It follows the approved dark interface, green brand accents, Inter typography, responsive layouts, and explicit loading/error states.
 
-The target UI is responsive, dark, uses green brand accents and Poppins or Inter typography, and provides explicit loading, empty, and error states. It consumes documented `/api/v1` contracts.
+## Run locally
+
+```sh
+cd apps/web
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+The API base defaults to `http://localhost:8000`; set `VITE_API_BASE_URL` in `.env.local` to change it. The client consumes the implemented `/api/v1` login, registration, logout, current-user, profile-update, and admin-user-list routes. Start the API and configure its database as documented in `../../services/api/README.md`.
+
+```sh
+npm test
+npm run build
+```
+
+The access token is held in browser local storage to match the current bearer-token API. This is a client integration choice, not an authorization boundary; the backend remains authoritative. User management is read-only and requires the backend to authorize the signed-in user. No external AI provider is required.
