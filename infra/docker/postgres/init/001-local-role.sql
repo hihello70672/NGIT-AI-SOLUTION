@@ -1,7 +1,7 @@
--- Local bootstrap for the distinct application login. Init scripts run only
--- when the PostgreSQL data directory is first initialized. The role is
--- intentionally not granted schema/table access here: reviewed migrations and
--- deployment-specific grants must provision the least privileges required.
+-- Local bootstrap for a distinct, non-privileged application login.
+-- Init scripts run only when PostgreSQL initializes a fresh data directory.
+-- Migrations and deployment provisioning must explicitly grant reviewed,
+-- least-privilege access; this role intentionally receives no schema access.
 \set ON_ERROR_STOP on
 
 SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'ngit_app_user', :'ngit_app_password')
