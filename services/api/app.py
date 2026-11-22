@@ -7,8 +7,9 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from psycopg2.errors import UniqueViolation
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from psycopg2.errors import UniqueViolation
+from fastapi.security import HTTPBearer
 from services.api.config import Settings
 from services.api.database import Database
 from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
@@ -18,7 +19,7 @@ from services.api.services.auth import AuthService
 from services.api.services.tasks import TaskRegistry
 from services.api.modules.brain.api import router as brain_router
 from services.api.modules.memory.api import create_router as create_memory_router
-from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.api import create_agent_router
 from services.api.modules.agent.runtime import ToolRegistry, build_agent
 from services.api.modules.admin.service import AdminService
 from services.api.modules.admin.api import create_router as create_admin_router
@@ -89,8 +90,7 @@ async def internal_error(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": request_id(request), "details": {}}})
 
 @app.get("/health", tags=["health"])
-def health():
-    return {"status": "ok"}
+def health(): return {"status": "ok"}
 
 def public_user(row):
     created = row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else row["created_at"]
@@ -109,8 +109,7 @@ def login(body: LoginRequest, request: Request):
     return {"access_token": token, "user": public_user(user)}
 
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> AuthContext:
-    if credentials is None:
-        raise SecurityError("unauthenticated", "Authentication required")
+    if credentials is None: raise SecurityError("unauthenticated", "Authentication required")
     return auth.authenticate(credentials.credentials)
 
 @app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
@@ -123,18 +122,15 @@ def logout(request: Request, context: AuthContext = Depends(current_user), crede
 def get_me(context: AuthContext = Depends(current_user)):
     policies.authorize(context, "profile.read", owner_id=context.user_id)
     user = users.by_id(context.user_id)
-    if user is None:
-        raise SecurityError("unauthenticated", "Authentication required")
+    if user is None: raise SecurityError("unauthenticated", "Authentication required")
     return public_user(user)
 
 @app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def update_me(body: UserUpdateRequest, request: Request, context: AuthContext = Depends(current_user)):
-    if body.display_name is None:
-        raise ValueError("at least one update field is required")
+    if body.display_name is None: raise ValueError("at least one update field is required")
     policies.authorize(context, "profile.read", owner_id=context.user_id)
     user = users.update_display_name(context.user_id, body.display_name)
-    if user is None:
-        raise SecurityError("unauthenticated", "Authentication required")
+    if user is None: raise SecurityError("unauthenticated", "Authentication required")
     audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id, request_id=request_id(request))
     return public_user(user)
 
