@@ -5,7 +5,7 @@ from psycopg_pool import ConnectionPool
 
 class Database:
     def __init__(self, dsn: str, schema: str = "ngit") -> None:
-        if not schema.replace("_", "").isalnum():
+        if not schema.replace("_", "").isalnum() or not schema[0].isalpha():
             raise ValueError("invalid database schema")
         self.pool = ConnectionPool(conninfo=dsn, open=False, kwargs={"options": f"-c search_path={schema},public"})
 

@@ -18,8 +18,9 @@ class AuthService:
     def _verify(self, password: str, encoded: str) -> bool:
         try:
             algorithm, salt_hex, digest_hex = encoded.split("$", 2)
-            if algorithm != "scrypt": return False
-            actual = self._hash_password(password, bytes.fromhex(salt_hex)).split("$")[-1]
+            if algorithm != "scrypt":
+                return False
+            actual = hashlib.scrypt((password + self.pepper).encode(), salt=bytes.fromhex(salt_hex), n=2**14, r=8, p=1).hex()
             return hmac.compare_digest(actual, digest_hex)
         except (ValueError, TypeError):
             return False

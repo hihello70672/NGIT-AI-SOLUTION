@@ -46,11 +46,16 @@ async def security_error_handler(request: Request, exc: SecurityError):
 
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
-    return JSONResponse(status_code=422, content={"error":{"code":"validation_error","message":"Request validation failed","request_id":getattr(request.state,"request_id",None),"details":{"fields":[{"field":".".join(map(str,e["loc"][1:])),"message":e["msg"]} for e in exc.errors()]}}})
+    fields = [{"field":".".join(map(str,e["loc"][1:])),"message":e["msg"]} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"error":{"code":"validation_error","message":"Request validation failed","request_id":getattr(request.state,"request_id",None),"details":{"fields":fields}}})
 
 @app.exception_handler(UniqueViolation)
 async def conflict_handler(request: Request, exc: UniqueViolation):
     return JSONResponse(status_code=409, content={"error":{"code":"conflict","message":"A resource with these details already exists","request_id":getattr(request.state,"request_id",None),"details":{}}})
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    return JSONResponse(status_code=422, content={"error":{"code":"validation_error","message":"Request validation failed","request_id":getattr(request.state,"request_id",None),"details":{}}})
 
 @app.exception_handler(Exception)
 async def internal_error_handler(request: Request, exc: Exception):
@@ -62,7 +67,10 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
     return auth.authenticate(credentials.credentials)
 
 def public_user(row: dict) -> dict:
-    return {"id":str(row["id"]),"email":row["email"],"display_name":row["display_name"],"status":row["status"],"roles":list(row.get("roles",[])),"created_at":row["created_at"]}
+    created_at = row["created_at"]
+    if hasattr(created_at, "isoformat"):
+        created_at = created_at.isoformat()
+    return {"id":str(row["id"]),"email":row["email"],"display_name":row["display_name"],"status":row["status"],"roles":list(row.get("roles",[])),"created_at":created_at}
 
 @app.get("/health", tags=["health"])
 def health():
@@ -92,8 +100,8 @@ def get_me(context=Depends(current_user)):
 
 @app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def update_me(body: UserUpdateRequest, context=Depends(current_user)):
-    if body.display_name is None:
-        raise ValueError("at least one update field is required")
+    if body.display_name is None or not body.display_name.strip():
+        raise ValueError("display_name must be non-empty")
     user = users.update_display_name(context.user_id, body.display_name.strip())
     if user is None: raise SecurityError("unauthenticated", "Authentication required")
     audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
