@@ -1,8 +1,4 @@
-"""Provider-neutral local and self-hosted text-generation runtimes.
-
-The Brain can operate entirely with locally or privately hosted OpenAI-compatible
-inference endpoints. Third-party services are never selected implicitly.
-"""
+"""Provider-neutral local and self-hosted text-generation runtimes."""
 from __future__ import annotations
 
 import asyncio
@@ -22,12 +18,10 @@ class Generation:
 
 
 class ModelRuntime(Protocol):
-    """Cancelable asynchronous text generation contract."""
+    """Cancelable asynchronous text-generation contract."""
 
-    async def generate(
-        self, *, model: str, messages: list[dict[str, str]], temperature: float,
-        max_tokens: int, timeout: float,
-    ) -> Generation: ...
+    async def generate(self, *, model: str, messages: list[dict[str, str]], temperature: float,
+                       max_tokens: int, timeout: float) -> Generation: ...
 
 
 class RuntimeErrorBase(Exception):
@@ -39,7 +33,7 @@ class RuntimeUnavailable(RuntimeErrorBase):
 
 
 class OpenAICompatibleRuntime:
-    """HTTP adapter for local/self-hosted chat-completion endpoints."""
+    """HTTP adapter for explicitly configured local/self-hosted endpoints."""
 
     def __init__(self, base_url: str, api_key: str | None = None) -> None:
         parsed = urlsplit(base_url)
@@ -50,18 +44,14 @@ class OpenAICompatibleRuntime:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
 
-    async def generate(
-        self, *, model: str, messages: list[dict[str, str]], temperature: float,
-        max_tokens: int, timeout: float,
-    ) -> Generation:
+    async def generate(self, *, model: str, messages: list[dict[str, str]], temperature: float,
+                       max_tokens: int, timeout: float) -> Generation:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         body = {"model": model, "messages": messages, "temperature": temperature,
                 "max_tokens": max_tokens}
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    f"{self.base_url}/chat/completions", json=body, headers=headers
-                )
+                response = await client.post(f"{self.base_url}/chat/completions", json=body, headers=headers)
                 response.raise_for_status()
                 payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -71,8 +61,7 @@ class OpenAICompatibleRuntime:
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise ValueError("empty output")
-            return Generation(text.strip(), str(payload.get("model") or model),
-                              choice.get("finish_reason"))
+            return Generation(text.strip(), str(payload.get("model") or model), choice.get("finish_reason"))
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RuntimeUnavailable("Model runtime returned an invalid response") from exc
 
@@ -90,7 +79,7 @@ class ModelDefinition:
 
 
 class ModelRegistry:
-    """In-process model catalogue; durable administration is intentionally separate."""
+    """In-process model catalogue; durable administration remains separate."""
 
     def __init__(self) -> None:
         self._models: dict[str, ModelDefinition] = {}
@@ -109,11 +98,8 @@ class ModelRegistry:
         return self._models.get(model_id)
 
     def candidates(self, capability: str = "chat") -> list[ModelDefinition]:
-        return sorted(
-            (item for item in self._models.values()
-             if item.enabled and capability in item.capabilities),
-            key=lambda item: (item.priority, item.model_id),
-        )
+        return sorted((m for m in self._models.values() if m.enabled and capability in m.capabilities),
+                      key=lambda m: (m.priority, m.model_id))
 
 
 @dataclass(frozen=True)
@@ -173,10 +159,8 @@ class BrainError(Exception):
 class BrainService:
     """Intent, confidence, model routing, generation, and optional fallback."""
 
-    def __init__(
-        self, registry: ModelRegistry, recognizer: IntentRecognizer | None = None,
-        fallback: ModelDefinition | None = None,
-    ) -> None:
+    def __init__(self, registry: ModelRegistry, recognizer: IntentRecognizer | None = None,
+                 fallback: ModelDefinition | None = None) -> None:
         self.registry = registry
         self.recognizer = recognizer or HeuristicIntentRecognizer()
         self.fallback = fallback
@@ -191,7 +175,6 @@ class BrainService:
             raise BrainError("validation_error", "Maximum tokens must be between 1 and 8192")
         if not math.isfinite(request.min_confidence) or not 0 <= request.min_confidence <= 1:
             raise BrainError("validation_error", "Minimum confidence must be between 0 and 1")
-
         intent, confidence = self.recognizer.recognize(text)
         if confidence < request.min_confidence:
             raise BrainError("low_confidence", "Could not confidently identify the request")
@@ -204,11 +187,7 @@ class BrainService:
             candidates = self.registry.candidates("chat")
         if not candidates:
             raise BrainError("model_unavailable", "No chat model is configured")
-
-        messages = [
-            {"role": "system", "content": request.system_prompt},
-            {"role": "user", "content": text},
-        ]
+        messages = [{"role": "system", "content": request.system_prompt}, {"role": "user", "content": text}]
         attempted: set[str] = set()
         last_error: RuntimeErrorBase | None = None
         queue = list(candidates)
@@ -220,20 +199,13 @@ class BrainService:
             attempted.add(definition.model_id)
             try:
                 result = await asyncio.wait_for(
-                    definition.runtime.generate(
-                        model=definition.model_name, messages=messages,
-                        temperature=request.temperature,
-                        max_tokens=request.max_tokens or definition.max_tokens,
-                        timeout=definition.timeout_seconds,
-                    ), timeout=definition.timeout_seconds,
-                )
-                return BrainResponse(
-                    result.text, intent, confidence, definition.model_id,
-                    definition not in candidates,
-                )
+                    definition.runtime.generate(model=definition.model_name, messages=messages,
+                        temperature=request.temperature, max_tokens=request.max_tokens or definition.max_tokens,
+                        timeout=definition.timeout_seconds), timeout=definition.timeout_seconds)
+                return BrainResponse(result.text, intent, confidence, definition.model_id,
+                                     definition not in candidates)
             except (RuntimeErrorBase, asyncio.TimeoutError) as exc:
-                last_error = (exc if isinstance(exc, RuntimeErrorBase)
-                              else RuntimeUnavailable("Model runtime timed out"))
-        raise BrainError(
-            "model_generation_failed", "No configured model could generate a response"
-        ) from last_error
+                last_error = exc if isinstance(exc, RuntimeErrorBase) else RuntimeUnavailable("Model runtime timed out")
+        raise BrainError("model_generation_failed", "No configured model could generate a response") from last_error
+PY
+services/api/modules/brain/api.py
