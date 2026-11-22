@@ -33,7 +33,7 @@ CREATE TABLE audit_logs(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,actor
 CREATE INDEX audit_actor_time_idx ON audit_logs(actor_user_id,occurred_at DESC);
 CREATE INDEX audit_resource_time_idx ON audit_logs(resource_type,resource_id,occurred_at DESC);
 CREATE INDEX audit_action_time_idx ON audit_logs(action,occurred_at DESC);
--- Audit is intentionally not user-readable through the RLS user context; admin service policy is separate.
-DO $rls$ DECLARE t text; BEGIN FOREACH t IN ARRAY ARRAY['conversations','messages','memory_records','subscriptions','usage_records','media_assets','videos','presentations','presentation_slides'] LOOP EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t); EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t); EXECUTE format('CREATE POLICY user_isolation ON %I USING (user_id = nullif(current_setting(''ngit.user_id'',true),'''')::uuid) WITH CHECK (user_id = nullif(current_setting(''ngit.user_id'',true),'''')::uuid)',t); END LOOP; END $rls$;
+CREATE INDEX audit_logs_occurred_idx ON audit_logs(occurred_at DESC);
+DO $rls$ DECLARE t text; BEGIN FOREACH t IN ARRAY ARRAY['conversations','messages','memory_records','subscriptions','usage_records','media_assets','videos','presentations','presentation_slides','user_roles'] LOOP EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t); EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t); EXECUTE format('CREATE POLICY user_isolation ON %I USING (user_id = nullif(current_setting(''ngit.user_id'',true),'''')::uuid) WITH CHECK (user_id = nullif(current_setting(''ngit.user_id'',true),'''')::uuid)',t); END LOOP; END $rls$;
 CREATE TABLE schema_migrations(version text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now());
 INSERT INTO schema_migrations(version) VALUES('0001_initial_schema');
