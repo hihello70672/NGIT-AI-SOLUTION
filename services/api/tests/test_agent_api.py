@@ -47,7 +47,7 @@ def test_authenticated_agent_routes_are_owner_scoped():
         restore_agent(app, routes, overrides)
 
 
-def test_sensitive_approval_uses_shared_grant_and_resume():
+def test_sensitive_approval_requires_distinct_reviewer_and_exact_resume():
     audit = AuditLogger(); policies = PolicyEngine(); approvals = ApprovalEngine()
     policies.register(Policy("agent.tool.filesystem.write", frozenset({"user"}), True, True))
     permissions = RestrictedActionManager(policies, approvals, EmergencyStop(audit), audit)
@@ -60,9 +60,11 @@ def test_sensitive_approval_uses_shared_grant_and_resume():
             client = TestClient(app)
             submitted = client.post("/api/v1/agent/tasks", json={"goal": "write file out.txt with content: ok"}).json()
             assert submitted["state"] == "awaiting_approval"
-            response = client.post(f"/api/v1/agent/tasks/{submitted['task_id']}/approve")
-            assert response.status_code == 200
-            grant = response.json()
+            grant_response = client.post(f"/api/v1/agent/tasks/{submitted['task_id']}/approve")
+            assert grant_response.status_code == 200
+            grant = grant_response.json()
+            self_decision = client.post(f"/api/v1/agent/approvals/{grant['approval_id']}/decision", json={"approved": True})
+            assert self_decision.status_code == 403
             approvals.decide(grant["approval_id"], "reviewer", approved=True)
             resumed = client.post(f"/api/v1/agent/tasks/{submitted['task_id']}/resume", json={"approval_id": grant["approval_id"]})
             assert resumed.status_code == 200 and resumed.json()["state"] == "succeeded"
@@ -72,7 +74,7 @@ def test_sensitive_approval_uses_shared_grant_and_resume():
 
 
 def test_owner_cannot_read_another_tasks():
-    agent, approvals = make_agent()
+    agent, _ = make_agent()
     first = agent.submit(AuthContext("alice", frozenset({"user"})), "alice task")
     from services.api.modules.agent.runtime import AgentError
     try:
@@ -83,8 +85,8 @@ def test_owner_cannot_read_another_tasks():
         raise AssertionError("cross-owner access must fail closed")
 
 
-def test_sensitive_grant_requires_a_separate_reviewer():
-    audit = AuditLogger(); engine = ApprovalEngine()
+def test_sensitive_grant_engine_enforces_separation_of_duties():
+    engine = ApprovalEngine()
     grant = engine.request("alice", "agent.tool.filesystem.write", "task:0")
     from services.api.security import SecurityError
     try:

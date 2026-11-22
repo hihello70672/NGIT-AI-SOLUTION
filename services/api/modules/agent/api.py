@@ -15,6 +15,9 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
     class ApprovalInput(BaseModel):
         approval_id: str = Field(min_length=1, max_length=128)
 
+    class DecisionInput(BaseModel):
+        approved: bool
+
     def invoke(fn, *args):
         try:
             return fn(*args)
@@ -43,7 +46,8 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
         return public_record(invoke(agent.get, context, task_id))
 
     @router.post("/tasks/{task_id}/approve")
-    def approve(task_id: str, context: AuthContext = Depends(current_user)):
+    def request_approval(task_id: str, context: AuthContext = Depends(current_user)):
+        """Task owner requests a grant; this endpoint never makes the approval decision."""
         if approvals is None:
             raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
         record = invoke(agent.get, context, task_id)
@@ -57,6 +61,19 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
         record.pending_approval_id = grant.approval_id
         return {"task_id": task_id, "approval_id": grant.approval_id, "action": pending["action"],
                 "resource_id": pending["resource_id"], "status": grant.status}
+
+    @router.post("/approvals/{approval_id}/decision")
+    def decide_approval(approval_id: str, body: DecisionInput, context: AuthContext = Depends(current_user)):
+        """Reviewer endpoint wired to the shared approval engine; separation of duties is enforced there."""
+        if approvals is None:
+            raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
+        try:
+            approval = approvals.decide(approval_id, context.user_id, approved=body.approved)
+        except SecurityError as exc:
+            raise HTTPException(status_code=403, detail={"code": exc.code, "message": exc.message}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={"code": "invalid_decision", "message": str(exc)}) from exc
+        return {"approval_id": approval.approval_id, "status": approval.status}
 
     @router.post("/tasks/{task_id}/resume")
     def resume(task_id: str, body: ApprovalInput, context: AuthContext = Depends(current_user)):
