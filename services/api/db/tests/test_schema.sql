@@ -14,8 +14,11 @@ BEGIN
  PERFORM set_config('ngit.user_id',u1::text,true);
  SELECT count(*) INTO visible_count FROM conversations;
  IF visible_count<>1 THEN RAISE EXCEPTION 'RLS expected one visible conversation, got %',visible_count; END IF;
+ rejected:=false;
  BEGIN INSERT INTO conversations(user_id,title) VALUES(u2,'forbidden'); EXCEPTION WHEN insufficient_privilege THEN rejected:=true; END;
  IF NOT rejected THEN RAISE EXCEPTION 'RLS write isolation did not reject cross-owner row'; END IF;
+ -- This test connection is expected to be a privileged migration/test role.
+ RESET ROLE;
  IF NOT EXISTS(SELECT 1 FROM roles WHERE name='user') THEN RAISE EXCEPTION 'user role seed missing'; END IF;
  IF NOT EXISTS(SELECT 1 FROM billing_plans WHERE plan_key='free') THEN RAISE EXCEPTION 'free plan seed missing'; END IF;
  IF COALESCE((SELECT enabled FROM provider_configs WHERE provider_key='local'),true) THEN RAISE EXCEPTION 'local optional provider must be disabled by default'; END IF;
