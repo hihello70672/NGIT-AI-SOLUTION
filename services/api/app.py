@@ -28,6 +28,12 @@ async def lifespan(_: FastAPI):
     yield
     db.close()
 
+
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    if credentials is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    return authenticator.authenticate(credentials.credentials)
+
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
 app.include_router(create_memory_router(db, current_user), prefix=settings.api_prefix)
@@ -97,11 +103,6 @@ def update_me(body: UserUpdateRequest, context=Depends(current_user)):
         raise SecurityError("unauthenticated", "Authentication required")
     audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return public_user(user)
-
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
-    if credentials is None:
-        raise SecurityError("unauthenticated", "Authentication required")
-    return authenticator.authenticate(credentials.credentials)
 
 @app.get(settings.api_prefix + "/admin/users", response_model=list[UserResponse], tags=["users"])
 def admin_users(context=Depends(current_user)):
