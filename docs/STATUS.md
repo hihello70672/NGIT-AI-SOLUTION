@@ -4,7 +4,7 @@ Status is based on committed files in the reviewed `main` tree. Checked-in tests
 
 ## Phase 1 — Foundation, architecture, database and local environment
 
-**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Local PostgreSQL Compose configuration and root `.env.example` are present. Five ordered migrations (`0001`–`0005`) create the isolated `ngit` schema, users, roles, user-scoped conversations/messages and memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes, RLS policies and a tenant-safe video/source-asset constraint. Reference seed data and SQL integration checks are present.
+**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Local PostgreSQL Compose configuration and root `.env.example` are present. Five ordered migrations (`0001`–`0005`) create the isolated `ngit` schema, users, roles, user-scoped conversations/messages and memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes, RLS policies and a tenant-safe video/source-asset constraint. Reference seed data and SQL integration checks cover tenant isolation, seeds, and selected constraints.
 
 **Remaining validation:** Apply migrations on a fresh PostgreSQL 16+ instance; validate constraints, indexes and seeds; execute isolation checks using a provisioned application role that is neither a superuser nor table owner; verify migration and application grants/ownership; validate Compose/local startup.
 
