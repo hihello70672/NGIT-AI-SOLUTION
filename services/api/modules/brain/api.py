@@ -22,8 +22,7 @@ def _register_configured_models() -> ModelDefinition | None:
             runtime=OpenAICompatibleRuntime(
                 local_url, os.getenv("NGIT_LOCAL_MODEL_API_KEY") or None
             ),
-            model_name=os.getenv("NGIT_LOCAL_MODEL_NAME", "local-model"),
-            priority=10,
+            model_name=os.getenv("NGIT_LOCAL_MODEL_NAME", "local-model"), priority=10,
         ))
     fallback_url = os.getenv("NGIT_SELF_HOSTED_MODEL_BASE_URL", "").strip()
     if not fallback_url:
@@ -83,7 +82,7 @@ async def generate(body: GenerateRequest) -> GenerateResponse:
     return GenerateResponse(**result.__dict__)
 
 
-def configure_models(primary: ModelDefinition | None,
+def configure_models(primary: ModelDefinition | None = None,
                      fallback_model: ModelDefinition | None = None) -> None:
     """Explicit configuration hook for tests and application composition."""
     global registry, brain
@@ -101,5 +100,4 @@ def reset_configured_models() -> None:
     brain = BrainService(registry, fallback=configured_fallback)
 
 
-# Existing consumers/tests can replace registry and brain directly. The explicit
-# configuration functions make lifecycle changes clear without duplicate services.
+__all__ = ["router"]

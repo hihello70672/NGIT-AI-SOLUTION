@@ -1,11 +1,12 @@
 """Provider-neutral local and self-hosted text-generation runtimes.
 
-NGIT Brain can operate entirely with locally hosted OpenAI-compatible
-inference endpoints; third-party services are optional and never implicit.
+The Brain can operate entirely with locally or privately hosted OpenAI-compatible
+inference endpoints. Third-party services are never selected implicitly.
 """
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -21,7 +22,7 @@ class Generation:
 
 
 class ModelRuntime(Protocol):
-    """Cancelable, asynchronous text generation contract."""
+    """Cancelable asynchronous text generation contract."""
 
     async def generate(
         self, *, model: str, messages: list[dict[str, str]], temperature: float,
@@ -38,12 +39,14 @@ class RuntimeUnavailable(RuntimeErrorBase):
 
 
 class OpenAICompatibleRuntime:
-    """HTTP adapter for local/self-hosted chat-completions endpoints."""
+    """HTTP adapter for local/self-hosted chat-completion endpoints."""
 
     def __init__(self, base_url: str, api_key: str | None = None) -> None:
         parsed = urlsplit(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("Model runtime URL must be an absolute HTTP(S) URL")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("Model runtime URL must not contain credentials or query data")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
 
@@ -67,7 +70,7 @@ class OpenAICompatibleRuntime:
             choice = payload["choices"][0]
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
-                raise ValueError("empty model output")
+                raise ValueError("empty output")
             return Generation(text.strip(), str(payload.get("model") or model),
                               choice.get("finish_reason"))
         except (KeyError, IndexError, TypeError, ValueError) as exc:
@@ -87,7 +90,7 @@ class ModelDefinition:
 
 
 class ModelRegistry:
-    """In-process registry; durable administrative configuration is separate."""
+    """In-process model catalogue; durable administration is intentionally separate."""
 
     def __init__(self) -> None:
         self._models: dict[str, ModelDefinition] = {}
@@ -95,8 +98,9 @@ class ModelRegistry:
     def register(self, definition: ModelDefinition) -> None:
         if not definition.model_id.strip() or not definition.model_name.strip():
             raise ValueError("model identifiers must not be empty")
-        if definition.timeout_seconds <= 0 or definition.max_tokens <= 0:
-            raise ValueError("model limits must be positive")
+        if (not math.isfinite(definition.timeout_seconds) or definition.timeout_seconds <= 0
+                or definition.max_tokens <= 0 or not definition.capabilities):
+            raise ValueError("model limits and capabilities must be valid")
         if definition.model_id in self._models:
             raise ValueError(f"model already registered: {definition.model_id}")
         self._models[definition.model_id] = definition
@@ -181,11 +185,11 @@ class BrainService:
         text = request.text.strip()
         if not text:
             raise BrainError("validation_error", "Input text must not be empty")
-        if not 0 <= request.temperature <= 2:
+        if not math.isfinite(request.temperature) or not 0 <= request.temperature <= 2:
             raise BrainError("validation_error", "Temperature must be between 0 and 2")
         if request.max_tokens is not None and not 1 <= request.max_tokens <= 8192:
             raise BrainError("validation_error", "Maximum tokens must be between 1 and 8192")
-        if not 0 <= request.min_confidence <= 1:
+        if not math.isfinite(request.min_confidence) or not 0 <= request.min_confidence <= 1:
             raise BrainError("validation_error", "Minimum confidence must be between 0 and 1")
 
         intent, confidence = self.recognizer.recognize(text)
@@ -224,16 +228,12 @@ class BrainService:
                     ), timeout=definition.timeout_seconds,
                 )
                 return BrainResponse(
-                    text=result.text, intent=intent, confidence=confidence,
-                    model_id=definition.model_id,
-                    fallback_used=definition not in candidates,
+                    result.text, intent, confidence, definition.model_id,
+                    definition not in candidates,
                 )
             except (RuntimeErrorBase, asyncio.TimeoutError) as exc:
-                last_error = exc if isinstance(exc, RuntimeErrorBase) else RuntimeUnavailable(
-                    "Model runtime timed out"
-                )
+                last_error = (exc if isinstance(exc, RuntimeErrorBase)
+                              else RuntimeUnavailable("Model runtime timed out"))
         raise BrainError(
-            "model_generation_failed",
-            "No configured model could generate a response",
+            "model_generation_failed", "No configured model could generate a response"
         ) from last_error
-        
