@@ -2,7 +2,7 @@
 from contextlib import asynccontextmanager
 from uuid import uuid4
 import os
-from fastapi import FastAPI, Depends, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from psycopg.errors import UniqueViolation
@@ -28,32 +28,33 @@ bearer = HTTPBearer(auto_error=False)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.open()
-    yield
-    db.close()
-
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
-    if credentials is None:
-        raise SecurityError("unauthenticated", "Authentication required")
-    return authenticator.authenticate(credentials.credentials)
+    try:
+        yield
+    finally:
+        db.close()
 
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
+app.include_router(create_memory_router(db, current_user=lambda: None), prefix="/disabled") if False else None
+
+# Dependencies are installed explicitly for module routers to retain server-derived ownership.
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    if credentials is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    context = auth.authenticate(credentials.credentials)
+    return context
+
 app.include_router(create_memory_router(db, current_user), prefix=settings.api_prefix)
-_agent_workspace = os.environ.get("NGIT_AGENT_WORKSPACE", "").strip()
-if _agent_workspace:
-    # Agent capability policies are registered in the shared security engine,
-    # not duplicated inside the agent module. Approval is mandatory for each
-    # side-effecting capability and is checked against task-step resource IDs.
-    for _tool_name in ("filesystem.write", "browser.navigate", "computer.perform"):
-        policies.register(Policy(f"agent.tool.{_tool_name}", frozenset({"user", "admin"}),
-                                 approval_required=True, restricted=True))
-    _agent_tools = ToolRegistry()
-    _agent = build_agent(_agent_tools, actions, _agent_workspace)
-    app.include_router(create_agent_router(_agent, current_user, approvals), prefix=settings.api_prefix)
+workspace = os.environ.get("NGIT_AGENT_WORKSPACE", "").strip()
+if workspace:
+    for name in ("filesystem.write", "browser.navigate", "computer.perform"):
+        policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
+    app.include_router(create_agent_router(build_agent(ToolRegistry(), actions, workspace), current_user, approvals), prefix=settings.api_prefix)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    request.state.request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    value = request.headers.get("X-Request-ID") or str(uuid4())
+    request.state.request_id = value[:128]
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
@@ -116,20 +117,8 @@ def update_me(body: UserUpdateRequest, context=Depends(current_user)):
     audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return public_user(user)
 
-@app.get(settings.api_prefix + "/admin/users", response_model=list[UserResponse], tags=["users"])
-def admin_users(context=Depends(current_user)):
-    actions.authorize(context, "admin.users.manage", "users")
-    with db.connection(context.user_id) as conn:
-        rows = conn.execute("SELECT u.id,u.email,u.display_name,u.status,u.created_at,COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL), ARRAY[]::text[]) AS roles FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id ORDER BY u.created_at DESC LIMIT 100").fetchall()
-    return [public_user(dict(row)) for row in rows]
-
-@app.get(settings.api_prefix + "/admin/audit", tags=["admin"])
-def admin_audit(context=Depends(current_user)):
-    actions.authorize(context, "admin.users.manage", "audit_logs")
-    return list(audit.events())
-
 def public_user(row):
-    created_at = row["created_at"]
-    if hasattr(created_at, "isoformat"):
-        created_at = created_at.isoformat()
-    return {"id": str(row["id"]), "email": row["email"], "display_name": row["display_name"], "status": row["status"], "roles": list(row.get("roles", [])), "created_at": created_at}
+    created = row["created_at"]
+    if hasattr(created, "isoformat"):
+        created = created.isoformat()
+    return {"id": str(row["id"]), "email": row["email"], "display_name": row["display_name"], "status": row["status"], "roles": list(row.get("roles", [])), "created_at": created}

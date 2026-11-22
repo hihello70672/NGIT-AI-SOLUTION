@@ -1,15 +1,30 @@
 # NGIT API
 
-FastAPI identity API and modular services. Configure PostgreSQL using root `.env.example`; use a constrained application role to exercise RLS.
+FastAPI identity API and modular services. Configuration is environment-backed; copy the root `.env.example`, set a unique `AUTH_TOKEN_PEPPER` of at least 32 bytes and a stable `PASSWORD_PEPPER` before starting. The sample database credentials are local-only. Use a constrained PostgreSQL application role for RLS.
 
-## Brain
-Optional local/self-hosted OpenAI-compatible runtime at `/api/v1/brain`; see `docs/interfaces/BRAIN.md`. External AI is optional.
+## Run locally
 
-## Memory and knowledge
-Authenticated owner-scoped conversation, memory, retrieval, and allowlist-verified supplied-text ingestion routes under `/api/v1`. See `docs/interfaces/MEMORY.md`.
+From the repository root, install the API requirements and start the server:
 
-## Personal Agent
-Agent contracts and safety boundaries are in `docs/interfaces/AGENT.md`. Routes mount only when `NGIT_AGENT_WORKSPACE` explicitly configures an isolated sandbox. Side-effecting tool policies are registered in the shared security engine and require a distinct reviewer’s one-time approval. No shell or implicit desktop access is enabled. Browser/computer adapters are optional, and task history is process-local.
+```sh
+python -m pip install -r services/api/requirements.txt
+PYTHONPATH=. uvicorn services.api.app:app --reload
+```
+
+Apply SQL migrations separately as documented in `db/README.md`. The API expects the database schema and reference seeds to be applied before use. `/health` is a basic process health check and does not prove database readiness.
+
+## API
+
+FastAPI publishes OpenAPI at `/openapi.json` and interactive Swagger UI at `/docs`. REST endpoints are versioned under `/api/v1`. Register and login return an opaque bearer token; send it as `Authorization: Bearer <token>`. `POST /api/v1/auth/logout` revokes the current process-local token. User profile routes derive identity only from validated bearer credentials. Validation, authentication, authorization, conflicts, and unexpected errors use the shared error envelope and request ID. Admin policy controls remain server-side.
+
+The token registry and shared security audit/approval state are process-local; use one worker for this development implementation. Do not present these as durable or cross-worker production sessions. No WebSocket is introduced: existing APIs are request/response and shared protocol requires justification before streaming. Background task contract is synchronous/process-local in `services/tasks.py`; runner/durability remains undecided.
 
 ## Tests
-Install `services/api/requirements.txt` and run `PYTHONPATH=. python -m unittest discover -s services/api/tests` from the repository root. SQL/RLS checks require disposable PostgreSQL and `services/api/db/tests/run.sh`. No test is claimed as passed unless run in its target environment.
+
+Run from repository root:
+
+```sh
+PYTHONPATH=. python -m pytest services/api/tests
+```
+
+The HTTP API tests isolate the user persistence boundary. Run PostgreSQL migrations and RLS checks separately using `services/api/db/tests/run.sh` against a disposable database. No test is claimed as passed unless actually executed.
