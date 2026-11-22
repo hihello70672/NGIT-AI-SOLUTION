@@ -1,39 +1,30 @@
-"""Brain API contract tests; model backends are replaced with deterministic fakes."""
+"""Brain REST contract tests with deterministic runtimes."""
 from fastapi.testclient import TestClient
 
-from services.api import app as api_module
+from services.api.app import app
 from services.api.modules.brain import api as brain_api
-from services.api.modules.brain.runtime import (
-    BrainService, Generation, ModelDefinition, ModelRegistry,
-)
+from services.api.modules.brain.runtime import ModelDefinition
 
 
 class FakeRuntime:
     async def generate(self, **kwargs):
-        return Generation("mock response", kwargs["model"])
+        from services.api.modules.brain.runtime import Generation
+        return Generation("contract answer", kwargs["model"])
 
 
-def test_brain_routes_expose_generation_and_model_registry(monkeypatch):
-    registry = ModelRegistry()
-    registry.register(ModelDefinition("test", FakeRuntime(), "test-model"))
-    monkeypatch.setattr(brain_api, "registry", registry)
-    monkeypatch.setattr(brain_api, "brain", BrainService(registry))
-    client = TestClient(api_module.app)
+def test_brain_api_models_generation_and_safe_unavailable(monkeypatch):
+    brain_api.configure_models(ModelDefinition("local-test", FakeRuntime(), "test-model"))
+    client = TestClient(app)
     models = client.get("/api/v1/brain/models")
     assert models.status_code == 200
-    assert models.json()["models"][0]["model_id"] == "test"
+    assert models.json()["models"][0]["model_id"] == "local-test"
     response = client.post("/api/v1/brain/generate", json={"text": "How are you?"})
     assert response.status_code == 200
-    assert response.json()["text"] == "mock response"
+    assert response.json()["text"] == "contract answer"
     assert response.json()["intent"] == "question"
-
-
-def test_generate_without_runtime_returns_actionable_unavailable(monkeypatch):
-    registry = ModelRegistry()
-    monkeypatch.setattr(brain_api, "registry", registry)
-    monkeypatch.setattr(brain_api, "brain", BrainService(registry))
-    response = TestClient(api_module.app).post(
-        "/api/v1/brain/generate", json={"text": "Explain NGIT"}
-    )
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "model_unavailable"
+    assert client.post("/api/v1/brain/generate", json={"text": "", "min_confidence": 0}).status_code == 422
+    brain_api.configure_models(None)
+    unavailable = client.post("/api/v1/brain/generate", json={"text": "Explain NGIT"})
+    assert unavailable.status_code == 503
+    assert unavailable.json()["detail"]["code"] == "model_unavailable"
+    brain_api.reset_configured_models()
