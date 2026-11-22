@@ -5,11 +5,14 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ngit}
       POSTGRES_USER: ${POSTGRES_USER:-ngit}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ngit_local_only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      NGIT_APP_USER: ${NGIT_APP_USER:-ngit_app}
+      NGIT_APP_PASSWORD: ${NGIT_APP_PASSWORD:?Set NGIT_APP_PASSWORD in .env}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -20,3 +23,5 @@ services:
 volumes:
   postgres_data:
     name: ngit_postgres_data
+    # Preserve local database state across `docker compose down`.
+    # Use `docker compose down -v` only when intentionally deleting it.
