@@ -40,7 +40,7 @@ Tests have not been run for this update. Checked-in tests are not evidence of pa
 
 ## Phase 2 security implementation boundaries
 
-The security engine implementation is in `services/api/security.py`; focused coverage is in `services/api/tests/test_security.py`. Token, approval, stop and audit state is process-local, not durable/shared across workers. The environment-backed `SecretStore` is a lookup boundary rather than production secret-manager integration. Remain single-worker until shared state and lifecycle are designed and validated. API startup requires `AUTH_TOKEN_PEPPER` to be configured to at least 32 bytes; use a deployment secret source and the non-secret `.env.example` guidance.
+Security engines are implemented in `services/api/security.py`, with regression coverage in `services/api/tests/test_security.py`. Their token, approval, stop and audit state is process-local, not durable/shared across workers. Environment-backed `SecretStore` is a lookup boundary, not production secret-manager integration. API initialization requires `AUTH_TOKEN_PEPPER`, configured with at least 32 bytes; `.env.example` documents a non-secret replacement instruction. Keep deployment single-worker until shared state and its lifecycle are designed and validated.
 
 ## Phase 3 / Phase 4 validation boundaries
 
