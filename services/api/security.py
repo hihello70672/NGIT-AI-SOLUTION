@@ -43,7 +43,7 @@ class Policy:
 
 
 class SecretStore:
-    """Read secrets by validated environment-variable name; never log values."""
+    """Environment-backed secret lookup boundary; values are never logged."""
 
     def __init__(self, environ: Mapping[str, str] | None = None):
         self._environ = os.environ if environ is None else environ
@@ -158,7 +158,7 @@ class AuditLogger:
 
 
 class PolicyEngine:
-    """Explicit allow-list policy and role/ownership authorization (deny by default)."""
+    """Allow-list role and ownership authorization, denying unknown actions."""
 
     def __init__(self, policies: Mapping[str, Policy] | None = None):
         self._policies: dict[str, Policy] = {}
@@ -210,7 +210,7 @@ class Approval:
 
 
 class ApprovalEngine:
-    """Bound, expiring approvals with separation of duties and atomic consumption."""
+    """Bound, expiring approvals with separation of duties and atomic use."""
 
     def __init__(self, *, clock: Callable[[], float] = time.time):
         self._clock, self._lock = clock, threading.RLock()
@@ -279,7 +279,7 @@ class EmergencyStop:
 
 
 class RestrictedActionManager:
-    """Single-use approval gate. Call immediately before the protected side effect."""
+    """Single-use approval gate; invoke immediately before the protected side effect."""
 
     def __init__(self, policies: PolicyEngine, approvals: ApprovalEngine, stop: EmergencyStop, audit: AuditLogger):
         self._policies, self._approvals, self._stop, self._audit = policies, approvals, stop, audit
@@ -305,7 +305,9 @@ class RestrictedActionManager:
 
 
 def create_default_security():
-    """Build the default process-local engines, preserving the API factory contract."""
+    """Build default process-local security engines for the API entrypoint."""
+    pepper = SecretStore().get("AUTH_TOKEN_PEPPER")
+    authenticator = Authenticator(pepper)
     audit = AuditLogger()
     policies = PolicyEngine()
     policies.register(Policy("profile.read", frozenset({"user", "admin"})))
@@ -313,7 +315,7 @@ def create_default_security():
     approvals = ApprovalEngine()
     stop = EmergencyStop(audit)
     actions = RestrictedActionManager(policies, approvals, stop, audit)
-    return Authenticator(), policies, approvals, audit, stop, actions
+    return authenticator, policies, approvals, audit, stop, actions
 
 
 def error_payload(error: SecurityError, request_id: str | None = None) -> dict[str, Any]:

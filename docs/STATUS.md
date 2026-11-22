@@ -10,9 +10,9 @@ This status reflects committed implementation in the reviewed `main` tree. Check
 
 ## Phase 2 — Authentication, security, API, users
 
-**Built/committed:** API configuration, transaction-local database caller context, authentication and user services, REST routes, schemas, server-derived authorization controls, approval controls, emergency stop, audit redaction, and React/TypeScript/Vite sign-in/registration and authenticated user-management flows. Core security engines provide opaque expiring/revocable bearer tokens, allow-list role/ownership policy checks, restricted actions, distinct-approver time-bounded approvals with single-use exact action/resource binding, synchronized emergency-stop state, redacted immutable audit snapshots, and validated environment-backed secret lookup. Security regression coverage is in `services/api/tests/test_security.py`.
+**Built/committed:** API configuration, transaction-local database caller context, authentication and user services, REST routes, schemas, server-derived authorization controls, approval controls, emergency stop, audit redaction, and React/TypeScript/Vite sign-in/registration and authenticated user-management flows. Security engines provide opaque expiring/revocable bearer tokens, allow-list role/ownership checks, restricted actions, distinct-approver expiring approvals bound to exact action/resource and consumed once, emergency-stop enforcement, immutable redacted audit snapshots, and validated environment-backed secret lookup. Regression coverage is present in `services/api/tests/test_security.py`.
 
-**Runtime limits:** Tokens, approvals, emergency-stop state and audit events are process-local. Use a single worker until shared durable persistence and lifecycle are designed. Admin user listing is not implemented; deployment must remain single-worker until state durability is addressed. Brain generation endpoints remain separate from authenticated caller authorization.
+**Runtime limits:** Tokens, approvals, emergency-stop state and audit events are process-local. Use a single worker until approved shared persistence/lifecycle replaces these primitives. Admin user listing is not implemented. Secret lookup uses environment configuration; production secret-manager integration remains open. Brain generation endpoints remain separate from authenticated caller authorization.
 
 ## Phase 3 — NGIT Brain and private memory/knowledge services
 
@@ -40,7 +40,7 @@ Tests have not been run for this update. Checked-in tests are not evidence of pa
 
 ## Phase 2 security implementation boundaries
 
-Security primitives and API wiring are process-local. Tokens, approvals, stop state and audit events are not durable, shared across workers, or suitable as a production multi-worker authority. There is no admin user-list route. Secret lookup is environment-backed; production secret-manager integration remains open. Treat these as explicit deployment limitations, not durability or production-readiness claims.
+The security engine implementation is in `services/api/security.py`; focused coverage is in `services/api/tests/test_security.py`. Token, approval, stop and audit state is process-local, not durable/shared across workers. The environment-backed `SecretStore` is a lookup boundary rather than production secret-manager integration. Remain single-worker until shared state and lifecycle are designed and validated. API startup requires `AUTH_TOKEN_PEPPER` to be configured to at least 32 bytes; use a deployment secret source and the non-secret `.env.example` guidance.
 
 ## Phase 3 / Phase 4 validation boundaries
 
@@ -50,16 +50,4 @@ Vector persistence, durable task execution and external adapters are optional/op
 
 Not started.
 
-## Validation record
-
-Tests and runtime checks were not run for this update. No passing result is claimed.
-
-## Phase 2 security implementation boundaries
-
-The authentication, authorization, policy, approval, restricted-action, audit, emergency-stop, and secret-lookup primitives are implemented in `services/api/security.py`, with focused regression coverage in `services/api/tests/test_security.py`. Their state is process-local and not shared between workers or durable across restarts. The environment-backed `SecretStore` is a lookup boundary, not a production secret-manager integration. Keep deployments single-worker until shared persistence/lifecycle is designed and validated.
-
 Tests and runtime checks were not run for this update; no passing result is claimed.
-
-## Phase 2 implementation note
-
-Security engine coverage and regression tests exist in `services/api/security.py` and `services/api/tests/test_security.py`. The API entrypoint still wires these process-local engines; the repository does not yet provide durable shared state. Secret manager integration and multi-worker operation remain explicitly unverified.
