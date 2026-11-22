@@ -4,7 +4,7 @@ import os
 import re
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from psycopg.errors import UniqueViolation
@@ -111,7 +111,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
 
 
 @app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
-def logout(context: AuthContext = Depends(current_user), credentials: HTTPAuthorizationCredentials = Depends(bearer), request: Request = None):
+def logout(request: Request, context: AuthContext = Depends(current_user), credentials: HTTPAuthorizationCredentials = Depends(bearer)):
     authenticator.revoke(credentials.credentials)
     audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id, request_id=request_id(request))
     return Response(status_code=204)
@@ -139,16 +139,14 @@ def update_me(body: UserUpdateRequest, request: Request, context: AuthContext = 
 
 
 @app.get(settings.api_prefix + "/users", tags=["users"])
-def list_users(limit: int = 100, offset: int = 0, context: AuthContext = Depends(current_user)):
-    if not 1 <= limit <= 100 or offset < 0:
-        raise ValueError("limit must be 1-100 and offset must be non-negative")
+def list_users(limit: int = Query(100, ge=1, le=100), offset: int = Query(0, ge=0), context: AuthContext = Depends(current_user)):
     policies.authorize(context, "admin.users.manage")
     return {"users": [public_user(user) for user in users.list_users(limit, offset)], "limit": limit, "offset": offset}
 
 
 policies.register(Policy("admin.users.manage", frozenset({"admin"})))
 app.include_router(brain_router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
-app.include_router(create_memory_router(db, current_user, source_allowlist=tuple(filter(None, os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",")))), prefix=settings.api_prefix)
+app.include_router(create_memory_router(db, current_user, source_allowlist=tuple(filter(None, (x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(","))))), prefix=settings.api_prefix)
 workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
 if workspace:
     for tool_name in ("filesystem.write", "browser.navigate", "computer.perform"):

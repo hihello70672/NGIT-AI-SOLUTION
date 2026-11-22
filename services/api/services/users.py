@@ -12,10 +12,7 @@ class UserService:
 
     def create(self, email: str, password_hash: str, display_name: str) -> dict[str, Any]:
         with self.database.connection() as conn:
-            row = conn.execute(
-                "INSERT INTO users(email,password_hash,display_name) VALUES (%s,%s,%s) RETURNING id,email,display_name,status,created_at",
-                (email.lower(), password_hash, display_name),
-            ).fetchone()
+            row = conn.execute("INSERT INTO users(email,password_hash,display_name) VALUES (%s,%s,%s) RETURNING id,email,display_name,status,created_at", (email.lower(), password_hash, display_name)).fetchone()
             if row is None:
                 raise RuntimeError("user creation returned no row")
             user = self._mapping(row, ("id", "email", "display_name", "status", "created_at"))
@@ -54,7 +51,7 @@ class UserService:
             return user
 
     def list_users(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        if not 1 <= limit <= 100 or offset < 0:
+        if isinstance(limit, bool) or isinstance(offset, bool) or not 1 <= limit <= 100 or offset < 0:
             raise ValueError("invalid pagination")
         with self.database.connection() as conn:
             rows = conn.execute("""SELECT u.id,u.email,u.display_name,u.status,u.created_at,
