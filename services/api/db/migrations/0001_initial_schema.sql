@@ -4,89 +4,23 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS ngit;
 CREATE TABLE IF NOT EXISTS ngit.schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 
-CREATE TABLE IF NOT EXISTS ngit.roles (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL UNIQUE,
- description text NOT NULL DEFAULT ''
-);
-CREATE TABLE IF NOT EXISTS ngit.users (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text NOT NULL, password_hash text NOT NULL,
- display_name text NOT NULL, status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','disabled','pending')),
- created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
-);
+CREATE TABLE IF NOT EXISTS ngit.roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL UNIQUE, description text NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS ngit.users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email text NOT NULL, password_hash text NOT NULL, display_name text NOT NULL, status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','disabled','pending')), created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON ngit.users(lower(email));
-CREATE TABLE IF NOT EXISTS ngit.user_roles (
- user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- role_id uuid NOT NULL REFERENCES ngit.roles(id) ON DELETE RESTRICT,
- PRIMARY KEY(user_id, role_id)
-);
-CREATE TABLE IF NOT EXISTS ngit.conversations (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- title text NOT NULL DEFAULT '', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(id,user_id)
-);
-CREATE TABLE IF NOT EXISTS ngit.messages (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), conversation_id uuid NOT NULL, user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- role text NOT NULL CHECK (role IN ('system','user','assistant','tool')), content text NOT NULL,
- created_at timestamptz NOT NULL DEFAULT now(),
- FOREIGN KEY(conversation_id,user_id) REFERENCES ngit.conversations(id,user_id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS ngit.memories (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- kind text NOT NULL CHECK (length(btrim(kind))>0), content text NOT NULL, metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
- created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS ngit.billing_plans (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), plan_key text NOT NULL UNIQUE, name text NOT NULL,
- currency char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'), amount_minor bigint NOT NULL CHECK (amount_minor>=0),
- billing_interval text NOT NULL CHECK (billing_interval IN ('month','year','once')),
- entitlements jsonb NOT NULL DEFAULT '{}'::jsonb
-);
-CREATE TABLE IF NOT EXISTS ngit.billing_accounts (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL UNIQUE REFERENCES ngit.users(id) ON DELETE CASCADE,
- created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS ngit.subscriptions (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- plan_id uuid NOT NULL REFERENCES ngit.billing_plans(id) ON DELETE RESTRICT,
- status text NOT NULL DEFAULT 'active' CHECK (status IN ('trialing','active','past_due','cancelled','ended')),
- current_period_start timestamptz NOT NULL DEFAULT now(), current_period_end timestamptz,
- created_at timestamptz NOT NULL DEFAULT now(), CHECK (current_period_end IS NULL OR current_period_end>current_period_start)
-);
-CREATE TABLE IF NOT EXISTS ngit.usage_records (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- subscription_id uuid REFERENCES ngit.subscriptions(id) ON DELETE SET NULL,
- metric text NOT NULL CHECK (length(btrim(metric))>0), quantity bigint NOT NULL CHECK (quantity>=0), recorded_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS ngit.provider_configs (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider_key text NOT NULL UNIQUE, display_name text NOT NULL,
- enabled boolean NOT NULL DEFAULT false, credential_ref text, config jsonb NOT NULL DEFAULT '{}'::jsonb,
- created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS ngit.media_assets (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- media_type text NOT NULL CHECK (media_type IN ('image','video','audio','document','other')),
- metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id)
-);
-CREATE TABLE IF NOT EXISTS ngit.videos (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- source_asset_id uuid, title text NOT NULL DEFAULT '', metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
- created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id),
- FOREIGN KEY(source_asset_id,user_id) REFERENCES ngit.media_assets(id,user_id) ON DELETE RESTRICT
-);
-CREATE TABLE IF NOT EXISTS ngit.presentations (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- title text NOT NULL, metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
- created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id)
-);
-CREATE TABLE IF NOT EXISTS ngit.presentation_slides (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), presentation_id uuid NOT NULL, user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE,
- position integer NOT NULL CHECK(position>=0), metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
- UNIQUE(presentation_id,position), FOREIGN KEY(presentation_id,user_id) REFERENCES ngit.presentations(id,user_id) ON DELETE CASCADE
-);
-CREATE TABLE IF NOT EXISTS ngit.audit_logs (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), actor_user_id uuid REFERENCES ngit.users(id) ON DELETE SET NULL,
- action text NOT NULL, details jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now()
-);
+CREATE TABLE IF NOT EXISTS ngit.user_roles (user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, role_id uuid NOT NULL REFERENCES ngit.roles(id) ON DELETE RESTRICT, PRIMARY KEY(user_id,role_id));
+CREATE TABLE IF NOT EXISTS ngit.conversations (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, title text NOT NULL DEFAULT '', created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id));
+CREATE TABLE IF NOT EXISTS ngit.messages (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), conversation_id uuid NOT NULL, user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, role text NOT NULL CHECK (role IN ('system','user','assistant','tool')), content text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), FOREIGN KEY(conversation_id,user_id) REFERENCES ngit.conversations(id,user_id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS ngit.memories (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, kind text NOT NULL CHECK (length(btrim(kind))>0), content text NOT NULL, metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS ngit.billing_plans (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), plan_key text NOT NULL UNIQUE, name text NOT NULL, currency char(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'), amount_minor bigint NOT NULL CHECK (amount_minor>=0), billing_interval text NOT NULL CHECK (billing_interval IN ('month','year','once')), entitlements jsonb NOT NULL DEFAULT '{}'::jsonb);
+CREATE TABLE IF NOT EXISTS ngit.billing_accounts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL UNIQUE REFERENCES ngit.users(id) ON DELETE CASCADE, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS ngit.subscriptions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, plan_id uuid NOT NULL REFERENCES ngit.billing_plans(id) ON DELETE RESTRICT, status text NOT NULL DEFAULT 'active' CHECK (status IN ('trialing','active','past_due','cancelled','ended')), current_period_start timestamptz NOT NULL DEFAULT now(), current_period_end timestamptz, created_at timestamptz NOT NULL DEFAULT now(), CHECK (current_period_end IS NULL OR current_period_end>current_period_start));
+CREATE TABLE IF NOT EXISTS ngit.usage_records (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, subscription_id uuid REFERENCES ngit.subscriptions(id) ON DELETE SET NULL, metric text NOT NULL CHECK (length(btrim(metric))>0), quantity bigint NOT NULL CHECK (quantity>=0), recorded_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS ngit.provider_configs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider_key text NOT NULL UNIQUE, display_name text NOT NULL, enabled boolean NOT NULL DEFAULT false, credential_ref text, config jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS ngit.media_assets (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, media_type text NOT NULL CHECK (media_type IN ('image','video','audio','document','other')), metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id));
+CREATE TABLE IF NOT EXISTS ngit.videos (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, source_asset_id uuid, title text NOT NULL DEFAULT '', metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id), FOREIGN KEY(source_asset_id,user_id) REFERENCES ngit.media_assets(id,user_id) ON DELETE RESTRICT);
+CREATE TABLE IF NOT EXISTS ngit.presentations (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, title text NOT NULL, metadata jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id));
+CREATE TABLE IF NOT EXISTS ngit.presentation_slides (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), presentation_id uuid NOT NULL, user_id uuid NOT NULL REFERENCES ngit.users(id) ON DELETE CASCADE, position integer NOT NULL CHECK(position>=0), metadata jsonb NOT NULL DEFAULT '{}'::jsonb, UNIQUE(presentation_id,position), FOREIGN KEY(presentation_id,user_id) REFERENCES ngit.presentations(id,user_id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS ngit.audit_logs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), actor_user_id uuid REFERENCES ngit.users(id) ON DELETE SET NULL, action text NOT NULL, details jsonb NOT NULL DEFAULT '{}'::jsonb, created_at timestamptz NOT NULL DEFAULT now());
 
 CREATE INDEX IF NOT EXISTS user_roles_role_id_idx ON ngit.user_roles(role_id);
 CREATE INDEX IF NOT EXISTS conversations_user_recent_idx ON ngit.conversations(user_id,updated_at DESC,id);
