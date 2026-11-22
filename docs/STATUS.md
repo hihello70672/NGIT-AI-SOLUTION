@@ -1,24 +1,19 @@
-# Project status — Phases 1–4
+# Project status — Phases 1–2
 
-This file records committed repository evidence, not proof of runtime behavior or test execution.
+This status is based on files present on the default branch (`main`) at the time of review. It records committed implementation evidence, not proof of runtime behavior. Tests have **not been run in this review**; no test results or passing status are claimed.
 
-## Phase 1 — Foundation and architecture
-**Status: Built.** Architecture, dependency and phase plans, shared protocols, environment examples, Compose PostgreSQL configuration, and initial schema are present.
+## Phase 1 — Foundation, architecture, database, and local environment
+**Status: Foundation committed; runtime validation remains.** The repository contains architecture, dependency, phase, assignment, and shared-protocol documentation; root README and environment examples; a Docker Compose PostgreSQL service; and database migrations, seed data, schema checks, and an ERD. The database design includes user-scoped relationships and RLS policies. Compose, migrations, RLS behavior, and SQL checks have not been validated by running them here.
 
-## Phase 2 — Core data, security, API, and web foundation
-**Status: Implemented foundation; integration/validation remains.** PostgreSQL schema and reference data, SQL checks, API authentication/security/user services and tests, and the `apps/web` React/TypeScript application are present. Shared security contains opaque bearer tokens (process-local registry), RBAC/policy authorization, one-time distinct-reviewer approvals, restricted action checks, an emergency stop, redacted in-memory audit events, and an environment-backed secret interface. These controls and audit/approval state are process-local and are not durable or cross-worker. Validate migrations/RLS against disposable PostgreSQL and execute API/web suites before claiming verified behavior.
+## Phase 2 — Authentication, security, API, user management, and web foundation
+**Status: Core implementation committed; integration and validation remain.** The repository contains FastAPI application/configuration/database/schema code, authentication and user services, shared security primitives, tests, and a React/TypeScript web application with API client and UI tests. Security code provides bearer-token authentication, role/policy checks, approvals for restricted actions, emergency-stop handling, audit redaction, and environment-backed secrets. The security module documents that token, approval, and audit state is process-local and not suitable for multi-worker production without shared persistence. The web UI handles authentication, profile workflows, and admin user listing through API calls; backend authorization remains authoritative.
 
-## Phase 3 — Brain, model runtime, memory, and knowledge
-**Status: Services implemented; runtime verification remains.** Brain intent/routing/runtime and REST contract have deterministic tests. Memory/knowledge use owner-scoped existing schema, lexical retrieval with optional owner-filtered vector adapter, and allowlist-verified supplied-text ingestion. URL crawling and schema redesign are not introduced. Tests/database integration have not been executed in this authoring environment.
+## Remaining work and blockers
+- Run the API/security/unit and web test suites, recording exact commands and outcomes; none have been run in this review.
+- Run the SQL migration/test runner against a disposable PostgreSQL 16+ database with a non-superuser, non-table-owner application role; validate RLS and cross-owner isolation. PostgreSQL-dependent checks have not been run.
+- Validate Docker Compose startup/readiness and API/database lifecycle and end-to-end integration.
+- Address process-local token, approval, audit, and task/history state before multi-worker or durable production use; choose shared persistence/task execution through approved architecture.
+- Configure a unique `AUTH_TOKEN_PEPPER` for local API execution; never use committed example credentials in production.
+- No evidence in this review establishes a technical blocker preventing these checks; the immediate blocker to claiming verified status is that the required environment-backed validation and test runs remain outstanding.
 
-## Phase 4 — Personal Agent, tools, browser/computer interfaces
-**Status: Core engine committed; runtime verification and durable history remain.** Conservative planner, registered capabilities, sandboxed filesystem, validated browser adapter, optional injected computer interface, task observations/verification, owner-scoped process-local history are present. Side-effecting capabilities use approval-required restricted policies; there is no shell or implicit desktop access. Tests have not been run in this authoring environment.
-
-## Remaining gates
-- Run `PYTHONPATH=. python -m unittest discover -s services/api/tests` with dependencies installed; validate SQL migrations/RLS on a disposable PostgreSQL database and run the DB test runner.
-- Validate API approval workflow and lifespan/database behavior; web suite and integration checks remain outstanding.
-- Choose durable task/history persistence only through approved architecture.
-
-External AI APIs remain optional. These status statements describe committed code only; they do not assert tests passed.
-
-**Phase 2 security follow-up:** tests additionally cover audit view isolation, opaque credential-like value redaction, restrictive policy setup, and bounds/type validation for issuance and approvals. Test execution is not asserted.
+External AI providers remain optional. Later phases are outside this Phase 1–2 status update.
