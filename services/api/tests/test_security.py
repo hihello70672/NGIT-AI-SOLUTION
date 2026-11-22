@@ -68,7 +68,6 @@ class AuthorizationTests(unittest.TestCase):
             self.manager.authorize(self.alice, "document.write", "doc-1", approval_id=grant.approval_id)
         self.assertEqual(self.audit.events()[-1]["outcome"], "denied")
         self.stop.reset("admin")
-        # Denial above does not consume the grant; successful authorization consumes it.
         self.manager.authorize(self.alice, "document.write", "doc-1", approval_id=grant.approval_id)
         with self.assertRaises(SecurityError):
             self.manager.authorize(self.alice, "document.write", "doc-1", approval_id=grant.approval_id)
@@ -86,6 +85,8 @@ class AuditAndSecretTests(unittest.TestCase):
         self.assertNotIn('"no"', repr(event))
         event["details"]["nested"]["safe"] = "tampered"
         self.assertEqual(audit.events()[0]["details"]["nested"]["safe"], "yes")
+        audit.record(action="opaque", details={"label": "Bearer super-secret-token"})
+        self.assertNotIn("super-secret-token", repr(audit.events()))
 
     def test_secret_names_are_validated_and_values_not_transformed(self):
         store = SecretStore({"VALID_SECRET_2": "example-only"})

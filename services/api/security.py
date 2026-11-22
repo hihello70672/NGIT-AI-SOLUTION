@@ -52,7 +52,7 @@ class SecretStore:
 
 
 class Authenticator:
-    """Opaque bearer issue/validation/revocation; keyed token digests only."""
+    """Opaque bearer issue/validation/revocation; stores keyed digests only."""
     def __init__(self, pepper: str | None = None, *, clock: Callable[[], float] = time.time):
         self._pepper = pepper if pepper is not None else SecretStore().get("AUTH_TOKEN_PEPPER")
         if not self._pepper:
@@ -146,7 +146,7 @@ class AuditLogger:
 
 
 class PolicyEngine:
-    """Explicit default-deny RBAC plus resource-owner authorization."""
+    """Explicit default-deny RBAC and resource-owner policy evaluation."""
     def __init__(self, policies: Mapping[str, Policy] | None = None):
         self._policies: dict[str, Policy] = {}
         for action, policy in (policies or {}).items():
@@ -273,8 +273,8 @@ class RestrictedActionManager:
             policy = self._policies.authorize(context, action, owner_id=owner_id)
             if policy.restricted:
                 self._stop.check()
-            if policy.approval_required and not self._approvals.consume(
-                    approval_id or "", actor_user_id=context.user_id, action=action, resource_id=resource_id):
+            if policy.approval_required and (not approval_id or not self._approvals.consume(
+                    approval_id, actor_user_id=context.user_id, action=action, resource_id=resource_id)):
                 raise SecurityError("approval_required", "A valid approval is required")
         except SecurityError as exc:
             self._audit.record(action=action or "unknown", actor_user_id=getattr(context, "user_id", None),

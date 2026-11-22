@@ -36,6 +36,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
 
+
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
@@ -64,7 +65,8 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 @app.exception_handler(SecurityError)
 async def security_error_handler(request: Request, exc: SecurityError):
-    return JSONResponse(status_code=401 if exc.code == "unauthenticated" else 403, content=error_payload(exc, getattr(request.state, "request_id", None)))
+    status = 401 if exc.code == "unauthenticated" else 503 if exc.code == "emergency_stop" else 403
+    return JSONResponse(status_code=status, content=error_payload(exc, getattr(request.state, "request_id", None)))
 
 @app.exception_handler(UniqueViolation)
 async def conflict_handler(request: Request, _: UniqueViolation):
@@ -93,7 +95,7 @@ def login(body: LoginRequest):
     return {"access_token": token, "user": public_user(user)}
 
 @app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
-def logout(context=Depends(current_user), credentials=Depends(bearer)):
+def logout(context=Depends(current_user), credentials: HTTPAuthorizationCredentials = Depends(bearer)):
     authenticator.revoke(credentials.credentials)
     audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return Response(status_code=204)
@@ -120,3 +122,5 @@ def public_user(row):
     if hasattr(created, "isoformat"):
         created = created.isoformat()
     return {"id": str(row["id"]), "email": row["email"], "display_name": row["display_name"], "status": row["status"], "roles": list(row.get("roles", [])), "created_at": created}
+
+__all__ = ["app"]
