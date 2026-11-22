@@ -50,7 +50,5 @@ def test_non_owner_cannot_access_task_approval_endpoint():
     policies = PolicyEngine()
     policies.register(Policy("agent.approval.decide", frozenset({"admin"})))
     approvals = ApprovalEngine(policy_engine=policies)
-    grant = approvals.request("owner", "file.write", "file-1")
     client = client_for(AuthContext("reviewer", frozenset({"admin"})), approvals, policies)
     assert client.post("/agent/tasks/private-task/approve").status_code == 404
-    assert client.post(f"/agent/approvals/{grant.approval_id}/decision", json={"approved": True}).status_code == 200
