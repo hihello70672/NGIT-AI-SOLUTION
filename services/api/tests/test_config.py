@@ -1,5 +1,3 @@
-import os
-
 import pytest
 
 from services.api.config import Settings

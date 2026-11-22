@@ -31,7 +31,7 @@ class Settings:
         return cls(database_url=url, cors_origins=origins, database_schema=schema)
 
     def validate_security_configuration(self) -> None:
-        """Reject unsafe deploy configurations; local test/dev remain injectable."""
+        """Reject unsafe deploy configs, but defer defaults to the security services."""
         token_pepper = os.getenv("AUTH_TOKEN_PEPPER", "")
         password_pepper = os.getenv("PASSWORD_PEPPER", "")
         if not token_pepper or len(token_pepper.encode()) < 32:
@@ -41,4 +41,5 @@ class Settings:
 
 
 def get_settings() -> Settings:
+    """Settings object, with local-only peppers supplied by the services as needed."""
     return Settings.from_env()
