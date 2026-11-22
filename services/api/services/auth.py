@@ -23,19 +23,18 @@ class AuthService:
 
     def _verify(self, password: str, encoded: str) -> bool:
         try:
-            algorithm, salt_hex, digest_hex = encoded.split("$", 2)
-            if algorithm != "scrypt":
+            scheme, salt_hex, expected = encoded.split("$", 2)
+            if scheme != "scrypt":
                 return False
             actual = self._hash_password(password, bytes.fromhex(salt_hex)).split("$", 2)[2]
-            return hmac.compare_digest(actual, digest_hex)
+            return hmac.compare_digest(actual, expected)
         except (ValueError, TypeError, AttributeError):
             return False
 
     def register(self, email: str, password: str, display_name: str):
         user = self.users.create(email, self._hash_password(password), display_name)
-        roles = set(user.get("roles") or ["user"])
-        user["roles"] = sorted(roles)
-        return user, self.authenticator.issue(str(user["id"]), roles)
+        user["roles"] = list(user.get("roles") or ["user"])
+        return user, self.authenticator.issue(str(user["id"]), set(user["roles"]))
 
     def login(self, email: str, password: str):
         user = self.users.by_email(email)
@@ -50,5 +49,4 @@ class AuthService:
         if not user or user.get("status") != "active":
             self.authenticator.revoke(token)
             raise SecurityError("unauthenticated", "Authentication required")
-        roles = frozenset(user.get("roles") or [])
-        return AuthContext(context.user_id, roles, context.token_id)
+        return AuthContext(context.user_id, frozenset(user.get("roles") or []), context.token_id)

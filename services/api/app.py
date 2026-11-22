@@ -117,6 +117,7 @@ def get_me(context: AuthContext = Depends(current_user)):
     user = users.by_id(context.user_id)
     if user is None:
         raise SecurityError("unauthenticated", "Authentication required")
+    policies.authorize(context, "profile.read", owner_id=context.user_id)
     return public_user(user)
 
 
@@ -124,6 +125,7 @@ def get_me(context: AuthContext = Depends(current_user)):
 def update_me(body: UserUpdateRequest, request: Request, context: AuthContext = Depends(current_user)):
     if body.display_name is None:
         raise ValueError("at least one update field is required")
+    policies.authorize(context, "profile.read", owner_id=context.user_id)
     user = users.update_display_name(context.user_id, body.display_name)
     if user is None:
         raise SecurityError("unauthenticated", "Authentication required")
