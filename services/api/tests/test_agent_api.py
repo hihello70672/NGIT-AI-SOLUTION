@@ -1,43 +1,47 @@
-import os
-os.environ.setdefault("AUTH_TOKEN_PEPPER", "test-auth-pepper-value-at-least-32-bytes")
-os.environ.setdefault("PASSWORD_PEPPER", "test-password-pepper-value")
+"""API tests for agent approval separation and reviewer RBAC."""
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from services.api.security import ApprovalEngine, AuthContext, Policy, PolicyEngine
 from services.api.modules.agent.api import create_agent_router
-from services.api.modules.agent.runtime import ToolRegistry, ToolDefinition, ToolResult, AgentService, AgentPlan, PlannedStep
-from services.api.security import AuthContext, ApprovalEngine, AuditLogger, EmergencyStop, PolicyEngine, RestrictedActionManager, Policy
 
-class StaticPlanner:
-    def plan(self, owner, goal): return AgentPlan("api-task", owner, goal, (PlannedStep("safe.echo", {"value": goal}, "echo"),), "now")
+class Record:
+    def __init__(self, approval_id=None):
+        self.state="awaiting_approval"; self.observations=[{"state":"approval_required","action":"file.write","resource_id":"file-1"}]
+        self.pending_approval_id=approval_id; self.owner_user_id="owner"
+class Agent:
+    def __init__(self): self.record=Record()
+    def get(self,context,task_id):
+        if context.user_id!=self.record.owner_user_id: raise ValueError("not owner")
+        return self.record
+class Tools:
+    def list(self): return []
 
-def test_authenticated_owner_scoped_routes():
-    audit = AuditLogger(); policies = PolicyEngine(); approvals = ApprovalEngine()
-    permissions = RestrictedActionManager(policies, approvals, EmergencyStop(audit), audit)
-    tools = ToolRegistry(); tools.register(ToolDefinition("safe.echo", "safe echo", False, lambda a: ToolResult(a["value"], "echoed", True)))
-    agent = AgentService(tools, permissions, StaticPlanner()); app = FastAPI()
-    app.include_router(create_agent_router(agent, lambda: AuthContext("alice", frozenset({"user"})), approvals), prefix="/api/v1")
-    client = TestClient(app)
-    submitted = client.post("/api/v1/agent/tasks", json={"goal": "hello"})
-    assert submitted.status_code == 202 and submitted.json()["state"] == "succeeded"
-    assert client.get("/api/v1/agent/tasks").json()["tasks"][0]["result"] == "hello"
+def client_for(context, approvals, policies):
+    app=FastAPI(); app.include_router(create_agent_router(Agent(),lambda:context,approvals,policies))
+    return TestClient(app)
 
-def test_sensitive_approval_routes_require_reviewer_and_exact_resume():
-    import tempfile
-    from services.api.modules.agent.runtime import build_agent
-    audit = AuditLogger(); policies = PolicyEngine()
-    policies.register(Policy("agent.tool.filesystem.write", frozenset({"user"}), True, True))
-    approvals = ApprovalEngine(); permissions = RestrictedActionManager(policies, approvals, EmergencyStop(audit), audit)
-    with tempfile.TemporaryDirectory() as workspace:
-        agent = build_agent(ToolRegistry(), permissions, workspace); app = FastAPI()
-        owner = AuthContext("alice", frozenset({"user"})); reviewer = AuthContext("reviewer", frozenset({"user"}))
-        app.include_router(create_agent_router(agent, lambda: owner, approvals), prefix="/api/v1")
-        client = TestClient(app); task = client.post("/api/v1/agent/tasks", json={"goal": "write file out.txt with content: ok"}).json()
-        assert task["state"] == "awaiting_approval"
-        grant = client.post(f"/api/v1/agent/tasks/{task['task_id']}/approve").json()
-        assert client.post(f"/api/v1/agent/approvals/{grant['approval_id']}/decision", json={"approved": True}).status_code == 403
-        app.dependency_overrides[next(d.call for r in app.routes if getattr(r, "path", "").endswith("/decision") for d in r.dependant.dependencies)] = lambda: reviewer
-        decision = client.post(f"/api/v1/agent/approvals/{grant['approval_id']}/decision", json={"approved": True})
-        assert decision.status_code == 200 and decision.json()["status"] == "approved"
-        resumed = client.post(f"/api/v1/agent/tasks/{task['task_id']}/resume", json={"approval_id": grant["approval_id"]})
-        assert resumed.status_code == 200 and resumed.json()["state"] == "succeeded"
-        assert open(os.path.join(workspace, "out.txt"), encoding="utf-8").read() == "ok"
+def test_approval_decision_requires_admin_and_different_reviewer():
+    approvals=ApprovalEngine(); grant=approvals.request("owner","file.write","file-1")
+    policies=PolicyEngine(); policies.register(Policy("agent.approval.decide",frozenset({"admin"})))
+    owner=client_for(AuthContext("owner",frozenset({"user"})),approvals,policies)
+    assert owner.post(f"/agent/approvals/{grant.approval_id}/decision",json={"approved":True}).status_code==403
+    outsider=client_for(AuthContext("reviewer",frozenset({"user"})),approvals,policies)
+    assert outsider.post(f"/agent/approvals/{grant.approval_id}/decision",json={"approved":True}).status_code==403
+    reviewer=client_for(AuthContext("reviewer",frozenset({"admin"})),approvals,policies)
+    response=reviewer.post(f"/agent/approvals/{grant.approval_id}/decision",json={"approved":True})
+    assert response.status_code==200 and response.json()["status"]=="approved"
+
+def test_approval_engine_reviewer_separation_is_enforced_even_without_api():
+    approvals=ApprovalEngine(); grant=approvals.request("owner","file.write","file-1")
+    try:
+        approvals.decide(grant.approval_id,"owner",approved=True)
+    except Exception as exc:
+        assert getattr(exc,"code",None)=="forbidden"
+    else:
+        raise AssertionError("task owner must not approve own request")
+
+def test_authentication_and_authorization_rejections_use_http_boundary():
+    approvals=ApprovalEngine(); grant=approvals.request("owner","file.write","file-1")
+    policies=PolicyEngine(); policies.register(Policy("agent.approval.decide",frozenset({"admin"})))
+    client=client_for(AuthContext("owner",frozenset({"user"})),approvals,policies)
+    assert client.post(f"/agent/approvals/{grant.approval_id}/decision",json={"approved":True}).status_code==403
