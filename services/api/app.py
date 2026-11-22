@@ -16,7 +16,7 @@ from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from services.api.modules.brain.api import router as brain_router
 from services.api.modules.memory.api import create_router as create_memory_router
-from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.api import create_agent_router
 from services.api.modules.agent.runtime import ToolRegistry, build_agent
 
 settings = Settings.from_env()
@@ -42,7 +42,7 @@ app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> AuthContext:
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
-    return auth.authenticate(credentials.credentials)
+    return auth.authenticator.authenticate(credentials.credentials)
 
 
 @app.middleware("http")
