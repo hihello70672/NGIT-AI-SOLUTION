@@ -33,7 +33,6 @@ def create_billing_router(service:BillingService,current_user)->APIRouter:
     def refund(body:RefundRequest,context:AuthContext=Depends(current_user)):return {"payment":service.refund(context,body.payment_id,body.refund_reference)}
     @router.post("/webhooks/{provider_key}")
     async def webhook(provider_key:str,request:Request,signature:str=Header(default="",alias="X-Payment-Signature")):
-        if not provider_key or len(provider_key)>64:raise ValueError("Invalid provider key")
-        return service.process_webhook(await request.body(),signature)
+        return service.process_webhook(provider_key,await request.body(),signature)
     return router
 __all__=["create_billing_router","SubscribeRequest","UsageRequest","RefundRequest"]
