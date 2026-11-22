@@ -1,12 +1,3 @@
-# API security tests
+# API tests
 
-Run from the repository root with Python 3.10 or newer:
-
-```sh
-PYTHONPATH=services/api python -m unittest discover -s services/api/tests -v
-```
-
-The suite exercises opaque bearer-token lifecycle, expiry/revocation, role and
-owner checks, approval separation/binding/one-time use, restricted action and
-emergency-stop enforcement, audit redaction, and the safe error envelope. It
-uses only the Python standard library and requires no external AI provider.
+From repository root, install `services/api/requirements.txt`, then run `PYTHONPATH=. pytest services/api/tests`. The API tests isolate the user service at the boundary and do not require PostgreSQL; database migrations and RLS are verified separately using `services/api/db/tests/run.sh` against a disposable PostgreSQL instance.

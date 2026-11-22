@@ -1,0 +1,1 @@
+"""NGIT API service package."""
