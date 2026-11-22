@@ -114,10 +114,10 @@ def logout(context: AuthContext = Depends(current_user), credentials: HTTPAuthor
 
 @app.get(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def get_me(context: AuthContext = Depends(current_user)):
+    policies.authorize(context, "profile.read", owner_id=context.user_id)
     user = users.by_id(context.user_id)
     if user is None:
         raise SecurityError("unauthenticated", "Authentication required")
-    policies.authorize(context, "profile.read", owner_id=context.user_id)
     return public_user(user)
 
 
