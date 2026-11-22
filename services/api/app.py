@@ -10,7 +10,7 @@ from psycopg.errors import UniqueViolation
 from services.api.config import Settings
 from services.api.database import Database
 from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
-from services.api.security import SecurityError, create_default_security, AuthContext, Policy
+from services.api.security import SecurityError, create_default_security, AuthContext
 from services.api.services.users import UserService
 from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -57,28 +57,28 @@ async def request_id_middleware(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
     fields = [{"field": ".".join(map(str, e["loc"][1:])), "message": e["msg"]} for e in exc.errors()]
-    return JSONResponse(422, {"error": {"code": "validation_error", "message": "Request validation failed", "request_id": getattr(request.state, "request_id", None), "details": {"fields": fields}}})
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": "Request validation failed", "request_id": getattr(request.state, "request_id", None), "details": {"fields": fields}}})
 
 
 @app.exception_handler(SecurityError)
 async def security_error(request: Request, exc: SecurityError):
     status = 401 if exc.code == "unauthenticated" else 503 if exc.code == "emergency_stop" else 403
-    return JSONResponse(status, {"error": {"code": exc.code, "message": exc.message, "request_id": getattr(request.state, "request_id", None), "details": {}}})
+    return JSONResponse(status_code=status, content={"error": {"code": exc.code, "message": exc.message, "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
 
 @app.exception_handler(UniqueViolation)
 async def conflict_error(request: Request, _: UniqueViolation):
-    return JSONResponse(409, {"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": getattr(request.state, "request_id", None), "details": {}}})
+    return JSONResponse(status_code=409, content={"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
 
 @app.exception_handler(ValueError)
 async def value_error(request: Request, exc: ValueError):
-    return JSONResponse(422, {"error": {"code": "validation_error", "message": str(exc), "request_id": getattr(request.state, "request_id", None), "details": {}}})
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": str(exc), "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
 
 @app.exception_handler(Exception)
 async def internal_error(request: Request, _: Exception):
-    return JSONResponse(500, {"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": getattr(request.state, "request_id", None), "details": {}}})
+    return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
 
 @app.get("/health", tags=["health"])
@@ -131,9 +131,11 @@ def update_me(body: UserUpdateRequest, request: Request, context: AuthContext = 
     return public_user(user)
 
 
-@app.get(settings.api_prefix + "/users", tags=["users"], dependencies=[Depends(current_user)])
+@app.get(settings.api_prefix + "/users", tags=["users"])
 def list_users(limit: int = 100, offset: int = 0, context: AuthContext = Depends(current_user)):
-    policies.authorize(context, "users.list")
+    if not 1 <= limit <= 100 or offset < 0:
+        raise ValueError("limit must be 1-100 and offset must be non-negative")
+    policies.authorize(context, "admin.users.manage")
     return {"users": [public_user(user) for user in users.list_users(limit, offset)], "limit": limit, "offset": offset}
 
 
@@ -142,6 +144,7 @@ source_allowlist = tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALL
 app.include_router(create_memory_router(db, current_user, source_allowlist=source_allowlist), prefix=settings.api_prefix)
 workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
 if workspace:
+    from services.api.security import Policy
     for name in ("filesystem.write", "browser.navigate", "computer.perform"):
         policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
     registry = ToolRegistry()
