@@ -1,21 +1,31 @@
 # NGIT API service
 
-FastAPI identity, security, user and modular capability API. Install dependencies with `pip install -r services/api/requirements.txt` and run from the repository root with `PYTHONPATH=. uvicorn services.api.app:app --reload`.
+FastAPI identity, security, user and modular capability APIs. Install from the repository root:
 
-## Database and authentication configuration
+```sh
+python -m venv .venv
+. .venv/bin/activate
+pip install -r services/api/requirements.txt
+cp .env.example .env
+```
 
-Copy `.env.example` to a private local environment file and use unique random values for `AUTH_TOKEN_PEPPER` (at least 32 bytes) and `PASSWORD_PEPPER` (at least 16 bytes). Configure `DATABASE_URL` or the `POSTGRES_*` values for a migrated PostgreSQL database. Never commit real credentials. Auth and password services read these environment variables; environment lookup is a local mechanism, not production secret management. Deployments should inject secrets through an approved secret manager.
+Configure unique local `AUTH_TOKEN_PEPPER` (32+ bytes) and `PASSWORD_PEPPER` (16+ bytes), plus `DATABASE_URL` or `POSTGRES_*` for a migrated PostgreSQL database. Start from the root with `PYTHONPATH=. uvicorn services.api.app:app --reload`. The API never applies privileged migrations; use a non-owner/non-superuser application role without `BYPASSRLS`. Authenticated DB operations set `ngit.user_id` transaction-locally from authenticated server context.
 
-Database migrations are privileged and are not applied automatically by the API. Use an application database role that is not a superuser, not a table owner and does not have `BYPASSRLS`. Authenticated user-scoped reads and writes set `ngit.user_id` transaction-locally in the service connection. Verify schema grants and RLS using the separate SQL test guidance before deployment.
+## REST and OpenAPI
 
-## Security and operational boundaries
+OpenAPI is available at `/docs` and `/openapi.json`. The default prefix is `/api/v1`:
 
-Authentication tokens, approvals, emergency-stop state and audit events currently live in process memory. Run exactly one API worker and expect state to be lost on restart. Do not claim multi-worker enforcement, durable audit, cross-worker revocation or production readiness until shared persistence and corresponding integration tests exist.
+- `POST /auth/register` and `POST /auth/login` issue bearer tokens with public user data.
+- `POST /auth/logout` revokes the bearer token.
+- `GET /users/me` and `PATCH /users/me` access the authenticated profile.
+- `GET /users?limit=100&offset=0` is admin-only and paginated.
+- Brain and memory routes mount under the same prefix. Agent routes are mounted only when `NGIT_AGENT_WORKSPACE` is configured.
+- `GET /health` is a liveness endpoint.
 
-Policy authorization is deny-by-default, role and owner scoped. Restricted operations require exact-resource short-lived approval from a different authenticated reviewer and are blocked while emergency stop is engaged. Agent approval decisions require `admin` permission through `agent.approval.decide`; both route and approval engine enforce reviewer policy and separation. Missing policy dependencies fail closed. Endpoint tests do not replace service-boundary authorization or database RLS.
+Errors use `{ "error": { "code", "message", "request_id", "details" } }`; request IDs are returned as `X-Request-ID`. WebSockets are not mounted because current shared interfaces require no bidirectional endpoint. External AI is optional.
 
-## API and tests
+Run API tests from root using `PYTHONPATH=. python -m pytest services/api/tests`. Database checks require a disposable migrated PostgreSQL database and non-owner application role; see `db/tests/README.md`.
 
-OpenAPI documentation is available at `/docs` and `/openapi.json` when the service is running. Auth routes are under the configured API prefix (default `/api/v1`): `POST /auth/register`, `POST /auth/login`, and authenticated `POST /auth/logout`. User routes are `GET/PATCH /users/me`; `GET /users` is admin-only and paginated. Brain, memory and optionally configured agent routes are mounted under the same prefix. REST is the default; no WebSocket endpoint is needed by the approved interfaces.
+## Limits
 
-Run API tests from repository root with `PYTHONPATH=. python -m pytest services/api/tests`. Database integration tests require a disposable migrated PostgreSQL database and a non-owner, non-superuser role without `BYPASSRLS`; set `NGIT_TEST_DATABASE_URL` to opt in. Database tests are described in `services/api/db/tests/README.md`. A documented command is not evidence it has run.
+Tokens, approvals, emergency-stop and audit state remain process-local and are lost on restart. Operate one API worker until durable shared state is approved and implemented. Environment secret lookup is for development, not production secret management. Browser local storage is not an authorization boundary. Never commit real credentials.
