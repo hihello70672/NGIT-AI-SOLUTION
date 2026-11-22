@@ -8,6 +8,8 @@ export APP_DATABASE_URL='postgresql://ngit_test_app:password@localhost:5432/ngit
 sh services/api/db/tests/run.sh
 ```
 
-The migration principal owns schema/migration objects. The test login must be non-superuser, not a table owner, and lack `BYPASSRLS`. For a disposable database, grant schema `USAGE`, select on role/plan/provider reference rows, and fixture DML on `users` and user-owned tables (including sequences only if any are added). Do not grant access to privileged provider or audit data beyond the tested disabled provider reference lookup. Assertions insert two temporary test identities, set their transaction-local `ngit.user_id` values in turn, and roll back all fixtures. Production code sets this value only from authenticated server identity. Migrations do not provision application login roles or grants.
+The migration principal owns schema and migration objects. The test login must be non-superuser, not a table owner, and lack `BYPASSRLS`. Provision `USAGE` on schema `ngit`, SELECT on reference rows, and fixture DML for `users` and user-owned tables. Admin-table RLS checks require the role to be granted SELECT/INSERT on `admin_rules` and `service_controls`, while the non-admin identity must have the same grants to prove RLS denies access (not merely SQL grants). Do not grant access to privileged provider or audit data beyond test needs. Assertions insert temporary identities and roll fixtures back.
 
-Checks cover email normalization uniqueness, database constraints, owner-scoped RLS, selected seed defaults, and indexes/tenant FK behavior through normal SQL usage. Use only disposable data; checked-in assertions do not prove execution or passing results.
+Checks cover existing owner scope plus admin-table read/write isolation, using the test SQL in `test_schema.sql`. Checked-in assertions do not prove tests were executed or passed.
+
+Migration `0006_admin_control.sql` also creates owner-only SELECT/INSERT policies for `ngit.users`, which are necessary for administrator user listings and account changes when the API connects as the authenticated non-owner role. Role grants remain deployment provisioning work.
