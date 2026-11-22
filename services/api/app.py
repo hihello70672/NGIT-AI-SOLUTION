@@ -22,53 +22,41 @@ from services.api.modules.agent.runtime import ToolRegistry, build_agent
 from services.api.modules.admin.service import AdminService
 from services.api.modules.admin.api import create_admin_router
 
-settings = Settings.from_env(); settings.validate_security_configuration()
-db = Database(settings.database_url, settings.database_schema)
-authenticator, policies, approvals, audit, emergency, actions = create_default_security()
-users = UserService(db); auth = AuthService(users, authenticator); bearer = HTTPBearer(auto_error=False)
-tasks = TaskRegistry()
-
+settings=Settings.from_env(); settings.validate_security_configuration()
+db=Database(settings.database_url,settings.database_schema)
+authenticator,policies,approvals,audit,emergency,actions=create_default_security()
+users=UserService(db); auth=AuthService(users,authenticator); bearer=HTTPBearer(auto_error=False); tasks=TaskRegistry()
 def _register_admin_policies():
-    for action in ("users", "roles", "models", "knowledge", "learning", "reports", "rules", "audit"):
-        policies.register(Policy(f"admin.{action}.read", frozenset({"admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), True, True))
-    policies.register(Policy("admin.rules.manage", frozenset({"admin"})))
-    policies.register(Policy("admin.services.control", frozenset({"admin"}), True, True))
-    policies.register(Policy("admin.analytics.read", frozenset({"admin"})))
-    policies.register(Policy("admin.emergency.engage", frozenset({"admin"})))
-    policies.register(Policy("admin.emergency.reset", frozenset({"admin"})))
-
-_register_admin_policies()
-admin = AdminService(db, policies, actions, audit)
-
+    for name in ("users.read","roles.read","models.read","knowledge.read","learning.read","reports.read","rules.read","audit.read","analytics.read","rules.manage","emergency.engage","emergency.reset"):
+        policies.register(Policy("admin."+name,frozenset({"admin"})))
+    policies.register(Policy("admin.users.manage",frozenset({"admin"}),True,True))
+    policies.register(Policy("admin.services.control",frozenset({"admin"}),True,True))
+_register_admin_policies(); admin=AdminService(db,policies,actions,audit)
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(_:FastAPI):
     db.open()
     try: yield
     finally: db.close()
-app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
-def request_id(request: Request) -> str: return getattr(request.state, "request_id", "")
+app=FastAPI(title="NGIT API",version="1.0.0",lifespan=lifespan)
+def request_id(request:Request)->str: return getattr(request.state,"request_id","")
 @app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
+async def request_id_middleware(request:Request,call_next):
     supplied=request.headers.get("X-Request-ID",""); safe=supplied if len(supplied)<=128 and re.fullmatch(r"[A-Za-z0-9_.:-]+",supplied) else str(uuid4())
     request.state.request_id=safe; response=await call_next(request); response.headers["X-Request-ID"]=safe; return response
 @app.exception_handler(RequestValidationError)
-async def validation_error(request: Request, exc: RequestValidationError):
+async def validation_error(request:Request,exc:RequestValidationError):
     fields=[{"field":".".join(map(str,e["loc"][1:])),"message":e["msg"]} for e in exc.errors()]
     return JSONResponse(422,{"error":{"code":"validation_error","message":"Request validation failed","request_id":request_id(request),"details":{"fields":fields}}})
 @app.exception_handler(SecurityError)
-async def security_error(request: Request, exc: SecurityError):
+async def security_error(request:Request,exc:SecurityError):
     status=401 if exc.code=="unauthenticated" else 503 if exc.code=="emergency_stop" else 403
     return JSONResponse(status,{"error":{"code":exc.code,"message":exc.message,"request_id":request_id(request),"details":{}}})
 @app.exception_handler(UniqueViolation)
-async def unique_error(request: Request, exc: UniqueViolation):
-    return JSONResponse(409,{"error":{"code":"conflict","message":"A resource with these details already exists","request_id":request_id(request),"details":{}}})
+async def unique_error(request:Request,exc:UniqueViolation): return JSONResponse(409,{"error":{"code":"conflict","message":"A resource with these details already exists","request_id":request_id(request),"details":{}}})
 @app.exception_handler(ValueError)
-async def value_error(request: Request, exc: ValueError):
-    return JSONResponse(422,{"error":{"code":"validation_error","message":str(exc)[:256],"request_id":request_id(request),"details":{}}})
+async def value_error(request:Request,exc:ValueError): return JSONResponse(422,{"error":{"code":"validation_error","message":str(exc)[:256],"request_id":request_id(request),"details":{}}})
 @app.exception_handler(Exception)
-async def internal_error(request: Request, exc: Exception):
-    return JSONResponse(500,{"error":{"code":"internal_error","message":"An unexpected error occurred","request_id":request_id(request),"details":{}}})
+async def internal_error(request:Request,exc:Exception): return JSONResponse(500,{"error":{"code":"internal_error","message":"An unexpected error occurred","request_id":request_id(request),"details":{}}})
 @app.get("/health",tags=["health"])
 def health(): return {"status":"ok"}
 def public_user(row):
@@ -104,8 +92,7 @@ app.include_router(brain_router,prefix=settings.api_prefix,dependencies=[Depends
 app.include_router(create_memory_router(db,current_user,source_allowlist=tuple(filter(None,(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST","").split(",")))),prefix=settings.api_prefix))
 workspace=os.getenv("NGIT_AGENT_WORKSPACE","").strip()
 if workspace:
-    for name in ("filesystem.write","browser.navigate","computer.perform"):
-        policies.register(Policy(f"agent.tool.{name}",frozenset({"user","admin"}),approval_required=True,restricted=True))
+    for name in ("filesystem.write","browser.navigate","computer.perform"): policies.register(Policy(f"agent.tool.{name}",frozenset({"user","admin"}),approval_required=True,restricted=True))
     app.include_router(create_agent_router(build_agent(ToolRegistry(),actions,workspace),current_user,approvals,policies),prefix=settings.api_prefix)
 app.include_router(create_admin_router(admin,current_user),prefix=settings.api_prefix)
 __all__=["app"]
