@@ -1,158 +1,117 @@
 # NGIT AI SOLUTION v4.0 — Architecture
 
-**Status:** Approved target architecture. Repository status and validation evidence are tracked separately in [STATUS.md](STATUS.md). Phases 1–3 are partly implemented, not fully validated; checked-in tests do not prove execution or passing results.
+**Status:** Approved target architecture. Repository implementation status and validation evidence are recorded separately in [STATUS.md](STATUS.md). Reported/checked-in implementation is not equivalent to verified runtime behavior; a checked-in test does not demonstrate that it ran or passed.
 
-## 1. System shape and stack
+## 1. Product boundary and system shape
 
-NGIT is a modular, web-first AI ecosystem. This milestone contains one frontend, `apps/web/`, backed by FastAPI services and PostgreSQL. NGIT-WINDOWS, NGIT-KALI, and NGIT-ANDROID are future adaptations and must not delay or reshape the web/backend system before it is stable.
+NGIT is a modular, web-first AI ecosystem, not a chatbot demo. This milestone contains the web application and backend. Future NGIT-WINDOWS, NGIT-KALI, and NGIT-ANDROID projects are out of scope until the web/backend system is stable.
 
-| Layer | Specification |
+1. **Web client:** React, TypeScript, and Vite, located only under `apps/web/`.
+2. **API/application services:** FastAPI REST endpoints, selective WebSockets, validation, server-derived identity and authorization, orchestration, safe errors, and background-task interfaces under `services/api/`.
+3. **Persistence:** PostgreSQL with ordered migrations, indexes, user isolation and auditability. PostgreSQL is authoritative for persisted application state.
+4. **Domain modules:** independently owned capabilities that interact through published service/task contracts, not private implementation imports or cross-module table writes.
+5. **Operations/delivery:** local Compose, environment-based configuration, observability and production operations decisions, backup/recovery guidance, and evidence-based release verification.
+
+Local or self-hosted AI operation is a core supported path. External AI/provider APIs are optional and cannot become a mandatory dependency for core Brain operation.
+
+| Layer | Required direction |
 |---|---|
-| Web client | React, TypeScript, and Vite in `apps/web/`. Responsive dark UI, green brand accents, Poppins or Inter, and consistent loading, empty, and error states. The frontend consumes backend APIs, is not an authorization boundary, and must not connect directly to PostgreSQL. |
-| API and services | FastAPI in `services/api/`. REST is the default; use WebSockets only for justified streaming or bidirectional use cases. Apply boundary validation, service-layer authorization, safe errors, and background-task interfaces for long-running work. |
-| Persistence | PostgreSQL is the system of record for identity, user isolation, conversations, memory, billing, optional provider metadata, media/video/presentation metadata, and audit logs. Services own persistence and migrations. |
-| AI runtime | NGIT Brain retains a local or self-hosted model-runtime path. Third-party AI APIs are optional, not required for core operation. |
-| Local development | Docker Compose supports local development. `compose.yaml` currently defines PostgreSQL only; API and web containers are not part of it. |
-| Future clients | Windows, Kali, and Android projects are outside this milestone. |
+| Web | Responsive React/TypeScript/Vite client, dark UI with green accents, Poppins or Inter typography, shared design system, clear loading/error states. Consume backend APIs; never connect directly to PostgreSQL or act as the authoritative security boundary. |
+| API/services | FastAPI, REST by default, WebSockets only for justified streaming/bidirectional use, service-layer domain logic, validated contracts, server-side authorization, safe errors and task interfaces. |
+| Database | PostgreSQL, ordered SQL migrations, transaction boundaries, indexes, user isolation and audit records. ORM/migration framework and final role/RLS deployment policy remain open. |
+| AI runtime | NGIT Brain must retain local/self-hosted runtime and routing. Provider fallback is optional, configured server-side, and not a single point of dependency. |
+| Local development | Docker Compose and environment configuration documented for startup and recovery. Current Compose boundary is PostgreSQL-only; API/web containers are not implied. |
 
-The current status describes phases 1–3 as partly done, not fully validated. Tests and runtime checks have not been run according to the status record. Do not treat checked-in test sources as passing tests.
+## 2. Repository layout and reconciliation
 
-## 2. Repository layout
-
-This layout is based on repository evidence. Proposed domain subdirectories must not be created as empty scaffolding; add paths only with working implementation or substantive documentation. Preserve the current API/module layout.
+Current paths are authoritative. Preserve working code and inspect actual routes, schemas, migrations, module layout and tests before changing them. Do not move or rename code simply to match a target sketch, and do not add empty scaffolding.
 
 ```text
 NGIT-AI-SOLUTION/
-├── apps/
-│   └── web/                                      # Existing React/TypeScript/Vite frontend
-├── services/
-│   └── api/                                      # Existing FastAPI backend
-│       ├── modules/                              # Existing feature modules; preserve layout
-│       ├── db/
-│       │   ├── migrations/                       # Five ordered SQL migrations, 0001–0005
-│       │   └── tests/                            # Database test sources and README
-│       └── tests/                                # API/backend test sources
-├── docs/
-│   ├── AGENT_ASSIGNMENTS.md
-│   ├── ARCHITECTURE.md
-│   ├── DEPENDENCY_MAP.md
-│   ├── ERD.md
-│   ├── PHASE_PLAN.md
-│   ├── STATUS.md
-│   └── interfaces/
-├── infra/
-│   └── docker/                                   # Local Docker guidance
-├── .env.example
-├── .gitignore
-├── README.md
-└── compose.yaml                                 # PostgreSQL service only
+├── apps/web/                       # Sole frontend application this milestone
+├── services/api/                   # Existing FastAPI app and feature modules
+│   ├── modules/                    # Existing domain modules; preserve their layout
+│   ├── db/migrations/              # Existing ordered PostgreSQL SQL migrations
+│   ├── db/tests/                   # SQL schema/isolation test sources
+│   └── tests/                      # API/module test sources
+├── docs/                           # Architecture, ERD, dependency, phase, status, ownership
+│   └── interfaces/                 # Shared and module contracts
+├── infra/docker/                   # Local Docker and PostgreSQL support/guidance
+├── compose.yaml                    # Local PostgreSQL service
+├── .env.example                    # Configuration examples; never credentials for deploy
+└── README.md
 ```
 
-The migration inventory was inspected: `services/api/db/migrations/` contains exactly five ordered SQL migrations: `0001_initial_schema.sql`, `0002_seed_reference_data.sql`, `0003_secure_role_assignments.sql`, `0004_complete_domain_schema.sql`, and `0005_tenant_safe_video_source.sql`. `docs/TEST_REPORT.md` is absent and must only be created after tests have actually run, with exact commands, environment, and outcomes.
+Target responsibilities within the existing paths: `apps/web/src/` may organize application shell/routes, features, shared components, design system, API transports and types as implementation warrants. `services/api/` owns FastAPI composition, core configuration/security/error behavior, shared primitives, domain modules, DB/session integration and worker interfaces. Add paths only with working implementation or substantive documentation. Existing SQL migration tooling is ordered plain SQL; do not introduce an ORM or another migration system without an approved decision.
 
-## 3. Module ownership and boundaries
+## 3. Module boundaries and responsibilities
 
-Each module owns its behavior, input validation, persistence model and migrations, and tests. Consumers use published typed service contracts rather than importing private implementation details or writing another module’s tables.
+Each module owns domain behavior, boundary validation, application services, persistence model/migrations and tests. Consumers use documented typed public contracts. Shared infrastructure must not turn into an unowned duplicate domain service.
 
-| Module | Boundary and responsibility |
+| Module | Ownership boundary |
 |---|---|
-| Identity and users | Authentication, account lifecycle, identity, and user operations. Authentication/session format remains open where current code does not settle it. |
-| Core security and audit | Server-derived caller context, authorization, policy and approval checks, restricted actions, audit, emergency controls, and secret-handling interfaces. |
-| NGIT Brain and models | Intent recognition, reasoning orchestration, confidence detection, response generation, model registry/routing, and local or self-hosted runtime. External fallback is optional. |
-| Memory and knowledge | User and conversation memory, retrieval, ingestion, provenance/source verification, preference memory, and user isolation. |
-| Personal Agent | Planning, tool registry, execution, browser and computer-control interfaces, observation, verification, and permission checks. Sensitive actions require backend authorization and, where designated, approval. |
-| Language intelligence | Language and dialect handling, translation, code-switching, multilingual responses, style adaptation, and coordinated voice, vision, and remote-control interfaces. |
-| Providers and integrations | Optional provider configuration, connection and health checks, usage/cost, routing/fallback, search, and browser adapters. Credentials remain server-side. |
-| Creative AI and media | Image, video, and document workflows; processing, composition, media management, and rendering. Prefer local or self-hosted processing where practical. |
-| Video presentations | Text-to-script, scenes, storyboards, asset matching, timelines, audio sync, subtitles, previews, and export for specified presenter/content modes. |
-| Presenter capability | Robot and human avatars, lip-sync, facial, gesture and body animation, text-to-speech, speech alignment, voice configuration, and virtual studio. |
-| Newsroom | Aggregation, analysis, verification, headlines, scripts, narration, ticker, subtitles, and archives. Never fabricate real-world events or present generated footage as authentic. |
-| Education | Lesson planning/generation, teaching presentations, virtual classroom/teacher, visual explanations, quizzes, and assessment. |
-| Cybersecurity | Authorized network/web analysis, configuration audits, forensics, safe labs, and remediation reporting. Validate authorization and scope. |
-| Billing | Plans, subscriptions, metering, quotas, payment verification, history, webhooks, renewals, and refunds. Do not assume a payment provider or expose credentials. |
-| Administration | Backend-enforced administration for users, roles, models, knowledge, rules, services, reports, analytics, audit, and emergency controls. |
-| Web application | The only frontend in this milestone. Consumes documented APIs and provides accessible, responsive operation states. |
+| Backend platform | FastAPI composition, route registration, dependency injection, REST/WebSocket transport, validation, common safe errors and task interfaces. |
+| Database | PostgreSQL schema/migrations/indexes, transactions, role grants and user-isolation policy; module data remains module-owned. |
+| Identity/security | Authenticated identity context, RBAC/policy, permissions, sensitive-action approvals, audit, emergency stop and secret-handling interfaces. Authoritative checks execute on the backend. |
+| NGIT Brain | Intent recognition, orchestration, local/self-hosted runtime, registry/routing, confidence handling, response generation and optional external fallback. |
+| Memory/knowledge | User/conversation memory, preferences, ingestion, provenance, retrieval and optional vector search; enforce owner scope. |
+| Personal Agent | Planning, task lifecycle, registered tools, execution/observation/verification, and permission/approval gates. Browser, filesystem and computer adapters are constrained capabilities, not authorities. |
+| Language intelligence | Language/dialect detection, multilingual responses, translation/code switching, style preferences and voice/vision/remote-control interfaces. |
+| Providers/integrations | Optional server-side provider config, health/usage/cost, routing/fallback, search/browser adapters and credential references. Secrets are not exposed to clients. |
+| Billing | Plans, subscriptions, metering, quotas, payment verification, history, webhooks, renewals and refunds. Provider choice and production execution are not assumed. |
+| Administration | Backend-enforced user/role/model/knowledge/rule/report/service-control/analytics/audit/emergency operations. |
+| Creative/media | Image/video/document workflows, composition/rendering, artifact ownership/storage/lifecycle and processing safety. Prefer local/self-hosted processing where practical. |
+| Video/presenter | Script/scenes/storyboards/assets/timeline/audio sync/subtitles/preview/export and reusable robot/human presenter, animation, voice and speech-alignment capabilities. |
+| Newsroom | Aggregation, analysis, verification, scripts, narration, ticker, subtitles and archives. Do not fabricate real-world events or depict generated footage as authentic. |
+| Education | Lessons, teaching presentations, virtual classroom/teacher, visual explanations, quizzes and assessment. |
+| Cybersecurity | Authorized assessments, safe labs, network/web/configuration analysis, forensics, reports and remediation. Validate authorization/scope and audit activity. |
+| Web application | User-facing UI/API client only; no authoritative access, billing or policy decisions. |
 
-## 4. Shared interfaces and protocols
+## 4. Shared contracts and protocols
 
-The shared-interface documents are `docs/interfaces/SHARED_PROTOCOLS.md`, `AGENT.md`, `BRAIN.md`, and `MEMORY.md`. Inspect them and current code before extending interfaces. Changes to a shared contract or module boundary require Chief Architect review.
+The canonical cross-module guidance is [SHARED_PROTOCOLS.md](interfaces/SHARED_PROTOCOLS.md). Existing module contracts include `ADMIN.md`, `AGENT.md`, `BILLING.md`, `BRAIN.md`, `LANGUAGE.md` and `MEMORY.md`. Inspect contracts and implementation before extension. Changes to shared boundaries/dependencies require Chief Architect review and corresponding contract documentation.
 
-### Service contracts and authorization
+- Modules publish typed input/result contracts and document validation, authorization context, persistence ownership, dependencies and failure behavior.
+- Routes translate transport into service calls; business logic is not exclusively embedded in handlers.
+- Authenticated operations receive server-derived identity. A user ID, role, permission or approval in an untrusted client payload is not authority.
+- User-owned reads/writes/searches/artifacts are owner-scoped at service boundaries. Where RLS is enabled, test as a non-owner, non-superuser role without `BYPASSRLS`; RLS is defense in depth, not a substitute for service authorization.
+- Sensitive actions require shared policy checks and designated approval immediately before execution; fail closed if authorization, approval, verification or emergency-state checks fail. Record relevant outcomes through audit contracts.
+- Long-running work defines owner context, correlation, status/result/failure, idempotency, retries and cancellation before claiming durability. The runner/scheduling implementation remains open.
+- REST is default. WebSockets require a defined reason, auth, authorization, message schemas, reconnect and close/error behavior before dependent features use them.
+- Validate all boundary data. Provider callbacks, imported knowledge, browser/tool outputs and administrative input are untrusted. Bound size/time/resource use, avoid leaking secrets/prompts/traces/other-user data.
+- Preserve existing API paths and schemas. API versioning, exact error envelope and cross-language JSON casing must be reconciled with actual code before standardization.
+- PostgreSQL is authoritative persisted state. Modules own their tables/migrations; cross-module access uses contracts. Event transport and exact event envelope/version/delivery guarantees remain open.
 
-- Publish typed request/result contracts and document failure behavior. Consumers must not rely on private persistence or implementation details.
-- Authenticated services receive **server-derived caller context**. Never authorize based on a client-supplied user ID, role, permission, or approval.
-- Enforce user ownership in service queries. Where PostgreSQL RLS is configured, test it using a non-owner, non-superuser application role without `BYPASSRLS`.
-- Perform shared policy/approval checks immediately before sensitive execution when required, and record relevant audit outcomes.
-- Long-running work defines task status and result, owner context, correlation, idempotency, retry, cancellation, and failure behavior before claiming reliability or durability.
-
-### API, errors, and validation
-
-- REST is the default. WebSockets require a justified streaming or bidirectional use case; authentication and reconnect behavior remain open.
-- Validate all API-boundary inputs and enforce authorization in backend services.
-- Use safe errors with stable machine-readable codes, user-safe messages, and request/correlation identifiers. Do not return secrets, internal traces, or other users’ data.
-- Treat provider callbacks, imported knowledge, browser/tool output, and administrative inputs as untrusted.
-- Keep credentials, tokens, prompts, stack traces, and other users’ data out of responses and logs.
-- Preserve existing routes and schemas after inspection. API versioning, exact error envelope, and cross-language JSON casing must be reconciled with existing routes and schemas before standardization.
-
-### Events, tasks, data, and naming
-
-- An event/task envelope identifies type, correlation, owner context where applicable, timestamp, and payload. Consumers validate payloads and handle failure states.
-- PostgreSQL is authoritative for persisted application data. Services own their tables and migrations; cross-module access uses contracts.
-- Event transport and exact event schema are open decisions. Do not invent or standardize them without architecture review.
-- Derive caller identity from authenticated server context and set PostgreSQL `ngit.user_id` transaction-locally from that context where required.
-- Use repository conventions where needed for compatibility. New code uses Python `snake_case`, TypeScript `camelCase`, and SQL `snake_case`.
-
-## 5. Dependency and security principles
-
-Identity establishes authenticated context. Core security owns authorization, policy, approvals, audit, and emergency controls. Brain may consume Memory and optional provider capabilities; Agent uses registered tools and security controls; language intelligence is reusable by Brain, media, news, education, and presentations. Presentation orchestration consumes media and presenter contracts rather than embedding their internals. Newsroom, cybersecurity, billing, and administration cannot bypass authorization and audit. Optional integrations stay behind module contracts.
+## 5. Dependency direction
 
 ```text
-Foundation: API configuration, database conventions, shared protocols
-  └── Identity and users
-        └── Core security and audit
-              ├── Brain and model runtime
-              │     └── Memory and knowledge
-              │           └── Optional provider/integration capabilities
-              │                 └── Personal Agent and registered tools
-              │                       └── Administration and rules
-              │                             └── Billing
-              │                                   └── Language intelligence
-              │                                         └── Voice, vision, remote-control interfaces
-              ├── Brain
-              │     └── Media and presentations
-              │           └── Newsroom
-              │                 └── Education
-              └── Authorized Cybersecurity capabilities
-
-Creative/media → Video presentation orchestration → Presenter capability
-                    └── Language/voice capabilities
+Web client (apps/web) -> documented FastAPI API contracts
+                              |
+Identity/users -> Core security/policy/approval/audit
+                              |
+                 +------------+------------------+
+                 |                               |
+              NGIT Brain                     Billing/Admin
+                 |                               |
+       Memory/Knowledge <-> Language          Identity/security
+                 |
+      Optional provider adapters (not required for local runtime)
+                 |
+       Personal Agent -> registered tools + policy/approval + task interface
+                              |
+       Creative/media -> video/presenter -> Newsroom and Education
+                              |
+       Cybersecurity -> authorized scope + safe lab + audit
 ```
 
-Newsroom → verified sources, language, media/presentation capabilities  
-Education → Brain, language, media/presentation capabilities  
-Cybersecurity → authorization, policy/approval, audit, safe-lab interfaces  
-Administration/Billing/Integrations → identity, security, audit  
-Web application → documented backend APIs only
+Security context and PostgreSQL isolation are foundational. Brain can consume Memory and optional providers by contract. Agent depends on registered tools, authorization/approval and task contracts. Language is reusable by Brain/media/news/education/presentation. Presentation composes media and presenter capabilities; Newsroom and Education consume them rather than duplicate renderers. Cybersecurity is authorized-target/safe-lab only. No domain may bypass identity, ownership, policy, audit or contract boundaries.
 
-Phase order is: (1) architecture, repository, database, shared protocols; (2) authentication, backend, security, users; (3) Brain, model runtime, memory, knowledge; (4) Personal Agent, tools, browser, computer interfaces; (5) multilingual, voice, vision, remote-control interfaces; (6) administration, rules, service control, billing; (7) optional provider management and browsing; (8) Creative Studio; (9) Content-to-Video, presenters, lip-sync, subtitles; (10) Newsroom, Teaching, Storytelling; (11) Cybersecurity Center; (12) integration, QA, documentation, verified local release.
+## 6. Decisions
 
-## 6. Technical decisions and open questions
+**Established by the specification:** web-first milestone; only `apps/web` frontend; FastAPI backend; PostgreSQL persisted data; REST default and selective WebSockets; module-owned service/data contracts; local/self-hosted Brain operation; external providers optional; backend authorization; approval and audit for sensitive actions; cybersecurity restricted to authorized scope/safe labs; preserve existing code; no unverified QA/release claims.
 
-Established: web-first with React/TypeScript/Vite and FastAPI; PostgreSQL system of record; REST by default; module-owned persistence and published contracts; local/self-hosted Brain path with external AI optional; backend authorization and server-derived caller context; preservation of current implementation; no unverified test or release claims.
+**Still open; do not silently invent incompatible module decisions:** ORM/migration tool beyond current SQL inventory; auth/session and durable token strategy; durable approval/emergency-stop/audit storage; app DB grants/RLS deployment roles; vector search/embedding persistence; local model packaging/configuration; durable task runner/scheduling; WebSocket auth/reconnect; media/artifact storage/lifecycle; payment provider and verification; external provider adapters/secret management; event transport/schema/delivery/versioning; production topology/monitoring/backup/recovery; API version/error envelope/JSON casing; engineering-role coordination. Record and review decisions before dependent production implementation.
 
-Open; do not silently decide: ORM and migration tooling; authentication/session design and durable token, approval, emergency-stop, and audit storage; RLS policy/context and application database role/grants; vector search and embeddings; local model runtime configuration/distribution; durable task runner and delivery/retry/cancellation semantics; WebSocket auth/reconnect; media/artifact storage; payment provider; approved external provider/search/browser adapters and secret management beyond environment lookup; event transport and exact envelope; production topology, monitoring, backup/recovery; API versioning, error envelope, JSON casing after code reconciliation; and engineering-role coordination. The approved specification identifies 19 specialist assignments; Chief Architect coordinates as the twentieth role without adding an implementation module.
+## 7. Validation and release evidence
 
-## 7. Validation and references
-
-Apply migrations to fresh PostgreSQL 16+, provision the intended non-owner/non-superuser role, verify grants and RLS, and test cross-user isolation. Run documented API/web suites, database/RLS tests, Compose lifecycle checks, production frontend build, and end-to-end local startup as applicable. These checks remain outstanding in the status record; checked-in tests do not prove they ran. Report exact commands and outcomes. Create `docs/TEST_REPORT.md` only after tests actually run.
-
-- [Dependency map](DEPENDENCY_MAP.md)
-- [Phase plan](PHASE_PLAN.md)
-- [Agent assignments](AGENT_ASSIGNMENTS.md)
-- [ERD](ERD.md)
-- [Shared protocols](interfaces/SHARED_PROTOCOLS.md)
-- [Agent](interfaces/AGENT.md), [Brain](interfaces/BRAIN.md), [Memory](interfaces/MEMORY.md)
-- [Repository status and validation gaps](STATUS.md)
-- [Local Docker guidance](../infra/docker/README.md)
-
-Shared-contract or module-boundary changes require Chief Architect review. Preserve existing implementation and inspect interface documents before extending them.
+The [phase plan](PHASE_PLAN.md) defines integration gates. Run migrations on a fresh disposable PostgreSQL instance, verify grants and owner isolation through the intended non-owner/non-superuser role, run API/web tests and builds, Compose lifecycle and relevant runtime checks. Record exact commands, environment and outcomes only after execution. Checked-in tests/docs are not execution evidence. Create `docs/TEST_REPORT.md`, release/tag or ZIP claim only after corresponding verification is actually performed.

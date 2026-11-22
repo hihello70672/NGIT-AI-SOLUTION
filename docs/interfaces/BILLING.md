@@ -2,16 +2,18 @@
 
 ## Ownership and security
 
-Billing derives identity from server-authenticated `AuthContext`; request data cannot specify owner, roles, permissions or approval. Subscription, metering and payment history are owner-scoped. Refund checks the shared `PolicyEngine` and fails closed. Webhooks deliberately do not use bearer auth, but require provider-adapter signature verification, a validated event envelope and provider-key routing. Event IDs are replay-deduplicated. Never put provider keys, credentials, card data or webhook secrets in billing persistence or responses.
+Billing derives identity from authenticated server-side caller context. Request payloads cannot select owner, roles, permissions or approval. Plans, subscription, metering and payment history are owner-scoped. Refund and restricted operations use shared policy and fail closed. Webhooks require provider-adapter signature verification, a validated event envelope, provider-key routing and replay deduplication. Never persist provider secrets, credentials or card data in billing records/responses.
 
 ## Provider contract
 
-`PaymentProvider.verify_payment(reference, expected_amount_minor, currency)` returns typed `PaymentVerification`; subscription and renewal state changes occur only when verification succeeds with exact amount and currency. `verify_webhook(raw_body, signature)` verifies authenticity and returns parsed event data. Provider-specific libraries, checkout, network calls and credentials remain outside this module. `InMemoryPaymentProvider` is a deterministic test adapter and is not a payment integration.
+`PaymentProvider.verify_payment(reference, expected_amount_minor, currency)` returns typed verification. Subscription/history state changes only after successful verification of exact amount/currency. `verify_webhook(raw_body, signature)` authenticates and parses provider events. Provider-specific libraries/network credentials remain behind the adapter. An in-memory test provider is deterministic test-only and is not a real payment integration.
 
-## Service and routes
+## Service behavior
 
-Plans use integer minor units, three-letter currency, month/year/once intervals and nonnegative integer entitlements. Purchases create subscription/history only after verification. Metered events require positive quantity and idempotency key; quota is checked under the service lock. Cancellation stops renewal but preserves period access. Renewal records a verified payment or marks past due. Refund workflow updates history and subscription status. Routes mounted under `/api/v1/billing`: `GET /plans`, `GET /subscription`, `POST /subscriptions`, `GET|POST /usage`, `GET /payments`, `POST /renewal/cancel`, `POST /refunds`, and `POST /webhooks/{provider_key}`.
+Plans use integer minor currency units, three-letter currency, supported intervals and nonnegative entitlements. Purchases create subscription/history only after verification. Metering requires positive quantity and idempotency; quota checks are transactionally serialized. Cancellation prevents renewal while preserving paid-period access. Renewal must record a verified payment or mark the period past due. Refund updates history/subscription only according to verified execution.
 
-## Persistence and operations
+Existing routes are under `/api/v1/billing`: `GET /plans`, `GET /subscription`, `POST /subscriptions`, `GET|POST /usage`, `GET /payments`, `POST /renewal/cancel`, `POST /refunds`, and provider-key routed `POST /webhooks/{provider_key}`. Preserve implementation compatibility when extending.
 
-The service is currently in-memory and single-process; migration `0007_billing_lifecycle.sql` is only a database schema/RLS contract, not an integrated persistence adapter. Production requires reviewed transactional persistence for plans, subscriptions, usage, payments and webhook idempotency; non-owner/non-superuser RLS/grant validation; a real provider adapter; verified provider-specific webhook routing; refund execution/verification; renewal scheduler and reconciliation before enabling real transactions. No payment provider is selected here.
+## Persistence and operational limits
+
+Status documents current billing/provider execution as in-memory and single-process; migration `0007_billing_lifecycle.sql` is a schema/RLS contract, not an integrated DB adapter. Production requires transactional durable plans/subscriptions/usage/payments/webhook idempotency, a real selected provider, provider-specific webhook verification/routing, refund execution/verification, renewal scheduling and reconciliation, and non-owner/non-superuser grants/RLS validation. No provider is selected here. Do not claim production billing until those requirements are implemented and tested.

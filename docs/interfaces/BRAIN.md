@@ -1,24 +1,20 @@
 # NGIT Brain interface
 
-This document describes the Brain boundary and runtime requirements; it does not claim every capability is production-ready or runtime-validated. See [project status](../STATUS.md). Inspect existing Brain routes, schemas, runtime code, and [shared protocols](SHARED_PROTOCOLS.md) before changes. Shared-contract changes require Chief Architect review.
+This document defines the Brain boundary/runtime requirements; it does not claim that each capability is production-ready or runtime-validated. Inspect existing routes, schemas and `services/api/modules/brain/` before extending. Shared contract changes require Chief Architect review.
 
-## Responsibility and dependencies
+## Ownership and dependencies
 
-Brain owns intent recognition, reasoning orchestration, confidence handling, response generation, model registry/routing, and runtime selection. It may consume Memory and optional provider capabilities only through published contracts. Core operation retains a local or self-hosted model-runtime path; external AI APIs remain optional.
+Brain owns intent recognition, orchestration, confidence handling, response generation, model registry/routing and runtime selection. It may consume Memory and optional provider capabilities only via published contracts. Core operation retains local/self-hosted model execution; external AI APIs remain optional.
 
-## Contract and security requirements
+## Contract/security requirements
 
-- Validate typed requests and bound input/output size, timeouts, and resource use.
-- Return typed results and sanitized failure behavior; do not expose provider credentials, stack traces, prompts, or internal data.
-- Authenticated generation must use server-derived caller context and backend authorization. Do not expose generation to untrusted callers until authorization is integrated and tested.
-- Apply user ownership to memory/retrieval calls; never accept a client-supplied identity as authorization.
-- Confidence is classifier confidence only; it is not evidence of factual correctness or response quality.
-- Provider fallback is opt-in, server-configured, and must preserve safe error and secret-handling behavior.
+- Validate typed input/output and bound size, time and resource use.
+- Return sanitized typed failures; never expose provider credentials, prompts, internal traces or protected data.
+- Authenticated generation uses server-derived identity and backend authorization. Do not expose generation to untrusted callers until authorization is integrated and tested.
+- Memory/retrieval calls enforce authenticated owner scope. A client-supplied ID is not authorization.
+- Confidence is classifier confidence, not evidence of factual correctness or answer quality.
+- Provider fallback is explicit opt-in/server-configured, preserves safe errors and does not silently become required.
 
-## Runtime guidance
+## Runtime and evidence
 
-Local/self-hosted OpenAI-compatible runtimes may be configured server-side. A missing optional runtime must not silently force an external provider or make core offline behavior depend on one. Model registry/runtime process-local behavior must not be described as durable administration or multi-worker shared state.
-
-## Current operational caveat
-
-The status record reports test sources but no executed test/runtime results for this update. Embeddings are not persisted by the reported schema, and source-origin allowlisting does not verify fetched content. Report only behavior verified in current code and tests actually run.
+An optional unavailable runtime must not silently force external providers or make core offline behavior depend on them. Process-local registries are not durable shared administration. Status records say embeddings are not persisted and runtime/database checks are unrun; source-origin allowlisting does not establish fetched-content authenticity. Report only behavior actually verified by executed tests/runtime checks.
