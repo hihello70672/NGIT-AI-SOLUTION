@@ -12,11 +12,11 @@ Database migration tooling remains deliberately plain ordered SQL. Apply all fil
 
 The API has FastAPI configuration, authentication and user services, shared security primitives, and security regression tests. `services/api/security.py` provides opaque expiring/revocable in-process bearer tokens using keyed digests; default-deny role-based policy checks and resource-owner enforcement; distinct-approver, expiring, single-use approvals bound to actor/action/resource; restricted action authorization with audited denials; recursively filtered audit events; fail-closed emergency stop; environment-backed secret lookup; and safe security error payloads. Process-local token, approval and audit state is not durable or cross-worker safe; shared production persistence remains a deployment requirement.
 
-The web foundation exists only under `apps/web`. External AI APIs remain optional. Authentication endpoint integration, database-backed security/audit behavior, API/web test execution, and deployment validation remain to be verified.
+`services/api/app.py` authenticates requests to the existing Brain router at its boundary, while memory and optional agent endpoints use the shared bearer dependency. Authentication endpoint integration, database-backed security/audit behavior, API/web test execution, and deployment validation remain to be verified. The web foundation exists only under `apps/web`; external AI APIs remain optional.
 
 ## Phase 3 — Brain, memory, retrieval, knowledge
 
-`services/api/modules/brain` provides deterministic intent/confidence handling, typed generation orchestration, model registry/routing, and bounded local/self-hosted OpenAI-compatible runtime configuration. Brain REST routes remain unauthenticated and must not be exposed to untrusted users until caller authentication/authorization is integrated.
+`services/api/modules/brain` provides deterministic intent/confidence handling, typed generation orchestration, model registry/routing, and bounded local/self-hosted OpenAI-compatible runtime configuration. The Brain API is protected by a router-level bearer authentication dependency; additional action-specific authorization and production deployment validation remain necessary.
 
 `services/api/modules/memory` provides authenticated conversations/messages, profile/preference/fact/summary memory, deterministic lexical retrieval, an optional owner-filtered vector-search adapter contract, source-allowlisted knowledge ingestion, URL origin verification, and chunk/source metadata. Ownership is derived from bearer authentication and enforced by database transaction-local RLS, SQL filters, and existing composite keys. Vector storage/embeddings remain intentionally unpersisted; knowledge ingestion accepts source text and does not fetch URLs or assert truth.
 
@@ -25,7 +25,7 @@ The web foundation exists only under `apps/web`. External AI APIs remain optiona
 - Run API/unit and web suites and record exact commands/outcomes.
 - Run SQL migrations and RLS tests on disposable PostgreSQL using a non-owner, non-superuser application role; verify cross-user isolation.
 - Validate Compose startup and API/database lifecycle.
-- Integrate authenticated caller context into Brain before exposing generation to untrusted callers.
+- Integrate action-specific authorization and caller context into Brain before enabling sensitive generation/tool actions for untrusted callers.
 - Keep source allowlists restricted to approved knowledge sources; any vector persistence architecture requires existing approval.
 - Verify durable shared security stores and secret-vault integration before multi-worker/production use.
 
