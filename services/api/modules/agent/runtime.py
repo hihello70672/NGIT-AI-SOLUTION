@@ -67,8 +67,7 @@ class ToolRegistry:
         try: return self._tools[name]
         except KeyError as exc: raise AgentError("tool_not_found", "Requested tool is not available") from exc
     def list(self) -> list[dict[str, Any]]:
-        return [{"name": t.name, "description": t.description, "sensitive": t.sensitive}
-                for t in sorted(self._tools.values(), key=lambda x: x.name)]
+        return [{"name": t.name, "description": t.description, "sensitive": t.sensitive} for t in sorted(self._tools.values(), key=lambda x: x.name)]
 
 class BrowserInterface:
     """Adapter-based browser boundary; navigation is approval-gated by the service."""
@@ -79,8 +78,7 @@ class BrowserInterface:
     def _url(value: Any) -> str:
         if not isinstance(value, str) or len(value) > 2048: raise AgentError("invalid_arguments", "A valid HTTP(S) URL is required")
         parsed = urlparse(value)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-            raise AgentError("invalid_arguments", "A valid HTTP(S) URL is required")
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password: raise AgentError("invalid_arguments", "A valid HTTP(S) URL is required")
         return value
     def inspect(self, args: Mapping[str, Any]) -> ToolResult:
         value = self.reader(self._url(args.get("url")))
@@ -148,8 +146,7 @@ class AgentService:
     def _now() -> str: return datetime.now(timezone.utc).isoformat()
     def submit(self, context: AuthContext, goal: str) -> TaskRecord:
         plan = self.planner.plan(context.user_id, goal)
-        record = TaskRecord(plan.task_id, context.user_id, plan.goal, "accepted", plan.created_at, self._now(),
-            [{"tool_name": s.tool_name, "arguments": dict(s.arguments), "description": s.description} for s in plan.steps])
+        record = TaskRecord(plan.task_id, context.user_id, plan.goal, "accepted", plan.created_at, self._now(), [{"tool_name": s.tool_name, "arguments": dict(s.arguments), "description": s.description} for s in plan.steps])
         with self._lock: self._records[record.task_id], self._plans[record.task_id] = record, plan
         return self.execute(context, record.task_id)
     def execute(self, context: AuthContext, task_id: str, approval_id: str | None = None) -> TaskRecord:
@@ -187,8 +184,7 @@ class AgentService:
                 observation = {"step": index, "tool_name": tool.name, "observation": result.observation, "verified": result.verified, "value": result.value}
                 with self._lock:
                     record.observations.append(observation)
-                    if not result.verified:
-                        record.state, record.error, record.updated_at = "failed", "verification_failed", self._now(); return record
+                    if not result.verified: record.state, record.error, record.updated_at = "failed", "verification_failed", self._now(); return record
                     record.result, record.updated_at = result.value, self._now()
             except AgentError as exc:
                 with self._lock: record.state, record.error, record.updated_at = "failed", exc.code, self._now()
@@ -220,23 +216,20 @@ def _load_adapter(spec: str) -> Callable[..., Any]:
 
 def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager, workspace: str | Path,
                 browser: BrowserInterface | None = None, computer: ComputerControlInterface | None = None) -> AgentService:
-    browser = browser or BrowserInterface(
-        _load_adapter(os.environ["NGIT_AGENT_BROWSER_READER"]) if os.getenv("NGIT_AGENT_BROWSER_READER") else None,
+    browser = browser or BrowserInterface(_load_adapter(os.environ["NGIT_AGENT_BROWSER_READER"]) if os.getenv("NGIT_AGENT_BROWSER_READER") else None,
         _load_adapter(os.environ["NGIT_AGENT_BROWSER_NAVIGATOR"]) if os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR") else None)
     computer = computer or ComputerControlInterface(_load_adapter(os.environ["NGIT_AGENT_COMPUTER_ADAPTER"]) if os.getenv("NGIT_AGENT_COMPUTER_ADAPTER") else None)
     fs = FilesystemInterface(workspace)
-    definitions = (
-        ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect),
+    for definition in (ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect),
         ToolDefinition("browser.navigate", "Approval-gated HTTP(S) navigation", True, browser.navigate),
         ToolDefinition("filesystem.read", "Read UTF-8 text in agent workspace", False, fs.read),
         ToolDefinition("filesystem.write", "Approval-gated workspace text write", True, fs.write),
-        ToolDefinition("computer.perform", "Approval-gated injected computer action", True, computer.perform))
-    for definition in definitions: tools.register(definition)
+        ToolDefinition("computer.perform", "Approval-gated injected computer action", True, computer.perform)):
+        tools.register(definition)
     return AgentService(tools, permissions)
 
 def public_record(record: TaskRecord) -> dict[str, Any]:
-    return {"task_id": record.task_id, "goal": record.goal, "state": record.state, "created_at": record.created_at,
-            "updated_at": record.updated_at, "plan": record.plan, "observations": record.observations,
-            "result": record.result, "error": record.error, "pending_approval_id": record.pending_approval_id}
+    return {"task_id": record.task_id, "goal": record.goal, "state": record.state, "created_at": record.created_at, "updated_at": record.updated_at,
+        "plan": record.plan, "observations": record.observations, "result": record.result, "error": record.error, "pending_approval_id": record.pending_approval_id}
 
 __all__ = ["AgentError", "AgentPlan", "AgentPlanner", "AgentService", "BrowserInterface", "ComputerControlInterface", "FilesystemInterface", "PlannedStep", "TaskRecord", "ToolDefinition", "ToolRegistry", "ToolResult", "build_agent", "public_record"]
