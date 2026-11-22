@@ -21,7 +21,6 @@ from typing import Any, Callable, Mapping
 
 class SecurityError(Exception):
     """Expected security rejection with a stable machine-readable code."""
-
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code, self.message = code, message
@@ -123,7 +122,9 @@ class AuditLogger:
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, str):
-            if re.search(r"(?i)\b(bearer\s+\S+|(?:sk|pk|api)[-_][a-z0-9_-]{12,})", value):
+            # Redact common opaque credentials, including compact tokens that lack a prefix.
+            if (re.search(r"(?i)\b(bearer\s+\S+|(?:sk|pk|api)[-_][a-z0-9_-]{12,})", value)
+                    or (len(value) >= 32 and re.fullmatch(r"[A-Za-z0-9_-]+", value))):
                 return "[REDACTED]"
             return value[:512]
         return type(value).__name__
