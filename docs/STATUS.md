@@ -1,25 +1,23 @@
-# Project status — Phases 1–6
+# Project status — Phases 1–2
 
-Status reflects committed repository contents on `main`. Test source does not prove tests ran; checked-in implementation does not by itself verify runtime behavior.
+Status reflects files confirmed committed on `main` in the repository. Checked-in implementation and test source do not prove that tests or runtime checks passed.
 
-## Phase 2 — Authentication, security and users
+## Phase 1 — Repository foundation, architecture and local data environment
 
-**Implemented:** Password verification and token lifecycle services; process-local opaque bearer-token authentication; server-derived caller roles; allow-list RBAC/policy authorization and owner checks; exact-scope one-time approvals with separate authorized reviewer; restricted action checks at execution; redacted thread-safe audit events; emergency stop; environment-backed secret lookup. Authenticated API routes provide registration, login/logout, current-user profile read/update, and administrator-only paginated users. The web client now provides sign-in/registration, a responsive user workspace shell, profile management and a backend-connected admin user listing.
+**Built:** Repository overview and layout; system architecture, module dependency map, phase plan and agent assignments; shared and module interface contracts; PostgreSQL 16 Compose service, health check, persistent data volume and local application-role bootstrap; example environment configuration; Docker operations guidance; PostgreSQL schema migrations and reference data; schema ERD and database test runner/documentation. The migrations define the `ngit` schema and domain tables, harden tenant-safe message ownership and add supporting indexes; seed data is deterministic and non-secret.
 
-**Caveats:** Tokens, approvals, audit and emergency-stop state remain process-local and are not suitable for multi-worker or durable production deployments. Password peppers must be configured through deployment secret management and are never committed. Browser token storage follows the current API contract, not an authorization boundary. Administrator UI visibility is only a convenience; backend authorization is authoritative. Run API and web checks before claiming verification.
+**Remains:** Run the ordered migrations and database checks against a fresh disposable PostgreSQL instance using separate migration and non-owner application roles. Confirm role grants, RLS behavior and migration compatibility in execution. Connect and validate the application against the database, and continue the planned product phases and integrations. Compose and database source files being committed are not evidence that the environment has been started or validated.
 
-## Phase 6 — Administration, billing, rules and service control
+**Blockers / caveats:** No database checks, migrations, Compose lifecycle or runtime checks were run for this update. The Compose bootstrap creates a separate local app login but does not grant schema/object access; migration provisioning/grants are still required. Do not use production or valuable data for checks.
 
-**Implemented:** Admin module provides authenticated operations and policy-gated administration. Billing module provides plan definitions, owner-scoped subscriptions, typed provider-independent payment verification, usage metering, idempotency and quota checks, payment history, cancellation/renewal transitions, refund workflow, webhook signature-verification interface and deduplicated event processing. API routes are wired to authenticated server-derived caller context. Migration `0007_billing_lifecycle.sql` declares payment and webhook tables with RLS. Tests cover provider verification, subscription ownership, quotas, webhook verification/deduplication, refunds, cancellation and routes.
+## Phase 2 — Authentication, security, users and web foundation
 
-**Caveats / remaining work:** Billing and provider run in process memory. The migration is a schema contract only; no database billing adapter is wired and no DB transaction, grant or RLS validation is claimed. Test provider is not a real integration. Durable payment verification/refund execution, provider-key-specific webhook verification/routing, recurring renewal scheduling, operational reconciliation and validated privileges/knowledge/audit grants remain requirements. Permission/rule engine state does not restore after restart; desired service controls lack a deployment executor; approval/emergency state is process-local/single-worker.
+**Built:** API authentication and user endpoints, validated request/response schemas and PostgreSQL-backed user services; process-local opaque bearer-token authentication, allow-list RBAC and policy checks, owner checks, exact-scope one-time approvals, restricted-action checks, redacted audit events, emergency stop and environment-backed secret lookup. The web app includes login and registration, an authenticated responsive dashboard, profile management, Brain chat, Agent tasks and an API-backed administrator user list. API, security and UI test source is committed.
 
-## Phase 2 — Web application foundation
+**Remains:** Execute the API, security, UI and build checks; validate API/web integration and database-backed user flows. Replace or appropriately persist process-local authentication, approval, audit, emergency-stop and task state before multi-worker or durable production use. Configure deployment secrets (including password peppers) through secret management, review browser token storage and complete production hardening.
 
-**Implemented:** `apps/web` contains a dark responsive interface with green accents and Inter typography; API-backed login/registration, authenticated dashboard navigation, profile settings, Brain chat, Agent tasks and an administrator-only user list. The existing shared API transport continues to use FastAPI `/api/v1` routes. User-management UI displays loading and error states and does not replace backend access checks. UI test source covers auth, registration, dashboard navigation, API-backed chat/Agent, profile and admin UI flows.
-
-**Caveats:** Browser bearer token is kept in local storage to match the current API. The backend's process-local auth/task state limits production deployment. The external Google Fonts import is optional typography enhancement with local sans-serif fallbacks. Frontend test/build commands have not been executed for this update; no passing results are claimed.
+**Blockers / caveats:** Process-local security/task state is not durable or suitable for multi-worker deployment. Browser token storage is local storage and does not itself provide an authorization boundary; server-side checks remain authoritative. The UI administrator view is convenience only. Configured deployment secrets and validated runtime integrations are still needed.
 
 ## Verification
 
-No tests, builds, migrations, DB checks, Compose lifecycle or runtime checks were executed for this update. No passing results are claimed.
+Tests, builds, migrations, database checks, Compose lifecycle and runtime checks have **not been run for this update**. No passing results are claimed.
