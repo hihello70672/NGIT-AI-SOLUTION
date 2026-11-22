@@ -19,13 +19,17 @@ OpenAPI is available at `/docs` and `/openapi.json`. The default prefix is `/api
 - `POST /auth/logout` revokes the bearer token.
 - `GET /users/me` and `PATCH /users/me` access the authenticated profile.
 - `GET /users?limit=100&offset=0` is admin-only and paginated.
-- Brain and memory routes mount under the same prefix. Agent routes are mounted only when `NGIT_AGENT_WORKSPACE` is configured.
+- Brain and memory routes mount under the same prefix. Agent routes mount only when `NGIT_AGENT_WORKSPACE` is configured.
 - `GET /health` is a liveness endpoint.
 
-Errors use `{ "error": { "code", "message", "request_id", "details" } }`; request IDs are returned as `X-Request-ID`. WebSockets are not mounted because current shared interfaces require no bidirectional endpoint. External AI is optional.
+Memory includes owner-scoped conversation/message, memory search, and allowlisted verified knowledge-ingestion REST APIs. No WebSocket is mounted: the approved shared interfaces require no bidirectional endpoint. External AI is optional.
 
-Run API tests from root using `PYTHONPATH=. python -m pytest services/api/tests`. Database checks require a disposable migrated PostgreSQL database and non-owner application role; see `db/tests/README.md`.
+Errors use `{ "error": { "code", "message", "request_id", "details" } }`; request IDs are returned as `X-Request-ID`.
+
+`services/api/services/tasks.py` provides a process-local background-task interface with accepted/succeeded/failed status and safe failure messages. It does not claim durable queuing, cross-worker delivery, retries, cancellation, or persisted task results; select a durable runner only through architecture review.
+
+Run API tests from root with `PYTHONPATH=. python -m pytest services/api/tests`. Database checks require a disposable migrated PostgreSQL database and non-owner role; see `db/tests/README.md`.
 
 ## Limits
 
-Tokens, approvals, emergency-stop and audit state remain process-local and are lost on restart. Operate one API worker until durable shared state is approved and implemented. Environment secret lookup is for development, not production secret management. Browser local storage is not an authorization boundary. Never commit real credentials.
+Tokens, approvals, emergency-stop and audit state are process-local and lost on restart. Operate one API worker until durable shared state is approved and implemented. Environment secret lookup is for development, not production secret management. Browser local storage is not an authorization boundary. Never commit real credentials.
