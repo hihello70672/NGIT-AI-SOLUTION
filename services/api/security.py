@@ -12,51 +12,51 @@ from typing import Any, Callable, Mapping
 
 class SecurityError(Exception):
     """Expected security rejection with a safe machine code."""
-    def __init__(self, code: str, message: str): super().__init__(message); self.code, self.message = code, message
+    def __init__(self,code:str,message:str):super().__init__(message);self.code,self.message=code,message
 
 @dataclass(frozen=True)
 class AuthContext:
-    user_id: str
-    roles: frozenset[str] = frozenset()
-    token_id: str = ""
+    user_id:str
+    roles:frozenset[str]=frozenset()
+    token_id:str=""
 
 @dataclass(frozen=True)
 class Policy:
-    action: str
-    roles: frozenset[str]
-    approval_required: bool = False
-    restricted: bool = False
+    action:str
+    roles:frozenset[str]
+    approval_required:bool=False
+    restricted:bool=False
 
 class SecretStore:
     """Environment-backed secret lookup; values are never logged."""
-    def __init__(self, environ: Mapping[str,str] | None=None): self._environ=os.environ if environ is None else environ
+    def __init__(self,environ:Mapping[str,str]|None=None):self._environ=os.environ if environ is None else environ
     def get(self,name:str)->str|None:
-        if not isinstance(name,str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,126}",name): raise ValueError("invalid secret name")
+        if not isinstance(name,str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,126}",name):raise ValueError("invalid secret name")
         value=self._environ.get(name)
-        if value is not None and not isinstance(value,str): raise ValueError("secret values must be strings")
+        if value is not None and not isinstance(value,str):raise ValueError("secret values must be strings")
         return value
 
 class Authenticator:
     """Opaque random bearer tokens; only keyed token digests are retained."""
     def __init__(self,pepper:str|None=None,*,clock:Callable[[],float]=time.time):
         self._pepper=pepper if pepper is not None else SecretStore().get("AUTH_TOKEN_PEPPER")
-        if not isinstance(self._pepper,str) or len(self._pepper.encode())<32: raise ValueError("AUTH_TOKEN_PEPPER must be configured and at least 32 bytes")
+        if not isinstance(self._pepper,str) or len(self._pepper.encode())<32:raise ValueError("AUTH_TOKEN_PEPPER must be configured and at least 32 bytes")
         self._clock,self._lock,self._tokens=clock,threading.RLock(),{}
-    def _digest(self,token:str)->str: return hmac.new(self._pepper.encode(),token.encode(),hashlib.sha256).hexdigest()
+    def _digest(self,token:str)->str:return hmac.new(self._pepper.encode(),token.encode(),hashlib.sha256).hexdigest()
     def issue(self,user_id:str,roles:set[str]|frozenset[str]=frozenset(),*,ttl_seconds:int=3600)->str:
-        if not isinstance(user_id,str) or not user_id or len(user_id)>256: raise ValueError("invalid token issue parameters")
-        if isinstance(ttl_seconds,bool) or not isinstance(ttl_seconds,int) or not 1<=ttl_seconds<=86400: raise ValueError("invalid token issue parameters")
-        if not isinstance(roles,(set,frozenset)) or any(not isinstance(r,str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}",r) for r in roles): raise ValueError("invalid token roles")
-        token=secrets.token_urlsafe(32); context=AuthContext(user_id,frozenset(roles),secrets.token_urlsafe(12))
+        if not isinstance(user_id,str) or not user_id or len(user_id)>256:raise ValueError("invalid token issue parameters")
+        if isinstance(ttl_seconds,bool) or not isinstance(ttl_seconds,int) or not 1<=ttl_seconds<=86400:raise ValueError("invalid token issue parameters")
+        if not isinstance(roles,(set,frozenset)) or any(not isinstance(r,str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}",r) for r in roles):raise ValueError("invalid token roles")
+        token=secrets.token_urlsafe(32);context=AuthContext(user_id,frozenset(roles),secrets.token_urlsafe(12))
         with self._lock:
-            now=self._clock(); self._tokens={k:v for k,v in self._tokens.items() if v[1]>now}; self._tokens[self._digest(token)]=(context,now+ttl_seconds)
+            now=self._clock();self._tokens={k:v for k,v in self._tokens.items() if v[1]>now};self._tokens[self._digest(token)]=(context,now+ttl_seconds)
         return token
     def authenticate(self,token:str|None)->AuthContext:
-        if not isinstance(token,str) or not token or len(token)>512: raise SecurityError("unauthenticated","Authentication required")
+        if not isinstance(token,str) or not token or len(token)>512:raise SecurityError("unauthenticated","Authentication required")
         key=self._digest(token)
         with self._lock:
             item=self._tokens.get(key)
-            if item is None or item[1]<=self._clock(): self._tokens.pop(key,None); raise SecurityError("unauthenticated","Authentication required")
+            if item is None or item[1]<=self._clock():self._tokens.pop(key,None);raise SecurityError("unauthenticated","Authentication required")
             return item[0]
     def revoke(self,token:str)->None:
         if isinstance(token,str) and len(token)<=512:
@@ -72,7 +72,7 @@ class AuditLogger:
         if isinstance(value,Mapping):
             out={}
             for key,item in value.items():
-                text=str(key); norm=re.sub(r"[^a-z0-9]","",text.lower())
+                text=str(key);norm=re.sub(r"[^a-z0-9]","",text.lower())
                 if any(word.replace("_","") in norm for word in cls._forbidden):continue
                 out[text[:128]]=cls._safe(item,depth+1)
             return out
@@ -127,8 +127,8 @@ class Approval:
     approver_user_id:str|None=None
 
 class ApprovalEngine:
-    """Bound, expiring approvals with separation of duties and atomic use."""
-    def __init__(self,*,clock:Callable[[],float]=time.time):self._clock,self._lock,self._approvals=clock,threading.RLock(),{}
+    """Bound, expiring approvals with RBAC, separation of duties and atomic use."""
+    def __init__(self,*,clock:Callable[[],float]=time.time,policy_engine:PolicyEngine|None=None):self._clock,self._lock,self._approvals,self._policy_engine=clock,threading.RLock(),{},policy_engine
     def request(self,actor_user_id:str,action:str,resource_id:str,*,ttl_seconds:int=600)->Approval:
         if not all(isinstance(x,str) and x and len(x)<=256 for x in (actor_user_id,action,resource_id)):raise ValueError("invalid approval request")
         if isinstance(ttl_seconds,bool) or not isinstance(ttl_seconds,int) or not 1<=ttl_seconds<=3600:raise ValueError("invalid approval request")
@@ -138,8 +138,10 @@ class ApprovalEngine:
     def get(self,approval_id:str)->Approval|None:
         with self._lock:
             item=self._approvals.get(approval_id);return copy.deepcopy(item) if item else None
-    def decide(self,approval_id:str,approver_user_id:str,*,approved:bool)->Approval:
+    def decide(self,approval_id:str,approver_user_id:str,*,approved:bool,approver_roles:frozenset[str]|set[str]|None=None)->Approval:
         if not isinstance(approved,bool) or not isinstance(approver_user_id,str) or not approver_user_id:raise ValueError("invalid approval decision")
+        if self._policy_engine is not None:
+            self._policy_engine.authorize(AuthContext(approver_user_id,frozenset(approver_roles or ())),"agent.approval.decide")
         with self._lock:
             item=self._approvals.get(approval_id)
             if item is None or item.expires_at<=self._clock() or item.status!="pending":raise SecurityError("approval_invalid","Approval is missing, expired, or already decided")
@@ -179,17 +181,16 @@ class RestrictedActionManager:
             if p.approval_required and not self._approvals.consume(approval_id or "",actor_user_id=context.user_id,action=action,resource_id=resource_id):raise SecurityError("approval_required","A valid approval is required")
         except SecurityError as exc:
             self._audit.record(action=action if isinstance(action,str) else "unknown",actor_user_id=getattr(context,"user_id",None),resource_id=resource_id,request_id=request_id,outcome="denied",details={"error_code":exc.code});raise
-        self._audit.record(action=action,actor_user_id=context.user_id,resource_id=resource_id,request_id=request_id,outcome="authorized")
-        return p
+        self._audit.record(action=action,actor_user_id=context.user_id,resource_id=resource_id,request_id=request_id,outcome="authorized");return p
 
 def create_default_security():
     """Build default process-local security engines for the API entrypoint."""
-    authenticator=Authenticator(SecretStore().get("AUTH_TOKEN_PEPPER"));audit=AuditLogger();policies=PolicyEngine()
+    audit=AuditLogger();policies=PolicyEngine()
     policies.register(Policy("profile.read",frozenset({"user","admin"})))
     policies.register(Policy("admin.users.manage",frozenset({"admin"}),True,True))
     policies.register(Policy("agent.approval.decide",frozenset({"admin"})))
     policies.register(Policy("admin.approvals.decide",frozenset({"admin"})))
-    approvals=ApprovalEngine();stop=EmergencyStop(audit);actions=RestrictedActionManager(policies,approvals,stop,audit)
+    approvals=ApprovalEngine(policy_engine=policies);authenticator=Authenticator(SecretStore().get("AUTH_TOKEN_PEPPER"));stop=EmergencyStop(audit);actions=RestrictedActionManager(policies,approvals,stop,audit)
     return authenticator,policies,approvals,audit,stop,actions
 
 def error_payload(error:SecurityError,request_id:str|None=None)->dict[str,Any]:return {"error":{"code":error.code,"message":error.message,"request_id":request_id,"details":{}}}

@@ -43,7 +43,9 @@ def create_agent_router(agent:AgentService,current_user:Any,approvals:Any=None,p
         if policies is not None:
             try:policies.authorize(context,"agent.approval.decide")
             except SecurityError as exc:raise HTTPException(status_code=403,detail={"code":exc.code,"message":exc.message}) from exc
-        decided=invoke(approvals.decide,approval_id,context.user_id,approved=body.approved)
+        try:decided=approvals.decide(approval_id,context.user_id,approved=body.approved,approver_roles=context.roles)
+        except TypeError:decided=invoke(approvals.decide,approval_id,context.user_id,approved=body.approved)
+        except SecurityError as exc:raise HTTPException(status_code=403,detail={"code":exc.code,"message":exc.message}) from exc
         return {"approval_id":decided.approval_id,"status":decided.status}
     @router.post("/tasks/{task_id}/resume")
     def resume(task_id:str,body:ApprovalInput,context:AuthContext=Depends(current_user)):
