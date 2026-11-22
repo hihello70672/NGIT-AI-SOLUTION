@@ -5,17 +5,17 @@ from pydantic import BaseModel, Field
 from services.api.security import AuthContext, SecurityError
 from services.api.modules.agent.runtime import AgentError, AgentService, public_record
 
-def create_agent_router(agent: AgentService, current_user: Any, approvals: Any = None, policies: Any = None) -> APIRouter:
+def create_agent_router(agent:AgentService,current_user:Any,approvals:Any=None,policies:Any=None)->APIRouter:
     router=APIRouter(prefix="/agent",tags=["agent"])
-    class TaskInput(BaseModel): goal:str=Field(min_length=1,max_length=4000)
-    class ApprovalInput(BaseModel): approval_id:str=Field(min_length=1,max_length=128)
-    class DecisionInput(BaseModel): approved:bool
+    class TaskInput(BaseModel):goal:str=Field(min_length=1,max_length=4000)
+    class ApprovalInput(BaseModel):approval_id:str=Field(min_length=1,max_length=128)
+    class DecisionInput(BaseModel):approved:bool
     def invoke(fn,*args,**kwargs):
         try:return fn(*args,**kwargs)
         except AgentError as exc:
             status=404 if exc.code=="task_not_found" else 409 if exc.code in {"task_running","invalid_task_state"} else 422
             raise HTTPException(status_code=status,detail={"code":exc.code,"message":exc.message}) from exc
-        except SecurityError as exc: raise HTTPException(status_code=401 if exc.code=="unauthenticated" else 403,detail={"code":exc.code,"message":exc.message}) from exc
+        except SecurityError as exc:raise HTTPException(status_code=401 if exc.code=="unauthenticated" else 403,detail={"code":exc.code,"message":exc.message}) from exc
     @router.get("/tools")
     def list_tools(context:AuthContext=Depends(current_user)):return {"tools":agent.tools.list()}
     @router.post("/tasks",status_code=202)
@@ -40,13 +40,10 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any =
         grant=approvals.get(approval_id) if hasattr(approvals,"get") else None
         if grant is None:raise HTTPException(status_code=404,detail={"code":"approval_not_found","message":"Approval not found"})
         if context.user_id==grant.actor_user_id:raise HTTPException(status_code=403,detail={"code":"forbidden","message":"A different reviewer is required"})
-        if policies is not None:
-            try:policies.authorize(context,"agent.approval.decide")
-            except SecurityError as exc:raise HTTPException(status_code=403,detail={"code":exc.code,"message":exc.message}) from exc
+        if policies is None:raise HTTPException(status_code=503,detail={"code":"policy_unavailable","message":"Reviewer authorization unavailable"})
+        try:policies.authorize(context,"agent.approval.decide")
+        except SecurityError as exc:raise HTTPException(status_code=403,detail={"code":exc.code,"message":exc.message}) from exc
         try:decided=approvals.decide(approval_id,context.user_id,approved=body.approved,approver_roles=context.roles)
-        except TypeError:
-            try:decided=approvals.decide(approval_id,context.user_id,approved=body.approved)
-            except SecurityError as exc:raise HTTPException(status_code=403,detail={"code":exc.code,"message":exc.message}) from exc
         except SecurityError as exc:raise HTTPException(status_code=403,detail={"code":exc.code,"message":exc.message}) from exc
         return {"approval_id":decided.approval_id,"status":decided.status}
     @router.post("/tasks/{task_id}/resume")
@@ -57,6 +54,5 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any =
     @router.post("/tasks/{task_id}/reject")
     def reject(task_id:str,context:AuthContext=Depends(current_user)):return public_record(invoke(agent.reject,context,task_id))
     return router
-
 create_router=create_agent_router
 __all__=["create_agent_router","create_router"]
