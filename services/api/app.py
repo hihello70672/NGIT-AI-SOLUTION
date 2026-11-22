@@ -35,14 +35,12 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
-app.include_router(create_memory_router(db, current_user=lambda: None), prefix="/disabled") if False else None
 
-# Dependencies are installed explicitly for module routers to retain server-derived ownership.
+# Dependencies derive the caller exclusively from a validated bearer token.
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
-    context = auth.authenticate(credentials.credentials)
-    return context
+    return auth.authenticate(credentials.credentials)
 
 app.include_router(create_memory_router(db, current_user), prefix=settings.api_prefix)
 workspace = os.environ.get("NGIT_AGENT_WORKSPACE", "").strip()
@@ -53,8 +51,8 @@ if workspace:
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    value = request.headers.get("X-Request-ID") or str(uuid4())
-    request.state.request_id = value[:128]
+    supplied = request.headers.get("X-Request-ID", "")
+    request.state.request_id = supplied[:128] if supplied and len(supplied) <= 128 else str(uuid4())
     response = await call_next(request)
     response.headers["X-Request-ID"] = request.state.request_id
     return response
@@ -95,7 +93,7 @@ def login(body: LoginRequest):
     return {"access_token": token, "user": public_user(user)}
 
 @app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
-def logout(context=Depends(current_user), credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+def logout(context=Depends(current_user), credentials=Depends(bearer)):
     authenticator.revoke(credentials.credentials)
     audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return Response(status_code=204)
