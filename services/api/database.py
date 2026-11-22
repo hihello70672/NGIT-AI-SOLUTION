@@ -10,8 +10,7 @@ class Database:
         if not schema.replace("_", "").isalnum() or not schema[0].isalpha():
             raise ValueError("invalid database schema")
         self.schema = schema
-        self.pool = ConnectionPool(conninfo=dsn, open=False,
-                                   kwargs={"options": f"-c search_path={schema},public"}, row_factory=None)
+        self.pool = ConnectionPool(conninfo=dsn, open=False, kwargs={"options": f"-c search_path={schema},public"}, row_factory=None)
 
     def open(self) -> None:
         self.pool.open(wait=True)
@@ -21,7 +20,7 @@ class Database:
 
     @contextmanager
     def connection(self, user_id: str | None = None) -> Iterator[Any]:
-        """Yield a transactional connection; set RLS identity locally, never per session."""
+        """Yield a transaction; authenticated identity is set locally, never session-wide."""
         with self.pool.connection() as conn:
             with conn.transaction():
                 if user_id is not None:
