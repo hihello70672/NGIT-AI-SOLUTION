@@ -1,23 +1,18 @@
 """Password verification and bearer-token lifecycle for identity service."""
 from __future__ import annotations
-
 import hashlib
 import hmac
 import os
 import secrets
-
-from services.api.security import Authenticator, AuthContext, SecretStore, SecurityError
-
+from services.api.security import Authenticator, AuthContext, SecurityError
 
 class AuthService:
     """Credential service backed by the user repository and shared authenticator."""
-
     def __init__(self, users, authenticator: Authenticator):
         self.users, self.authenticator = users, authenticator
-        pepper = SecretStore().get("PASSWORD_PEPPER")
-        if not isinstance(pepper, str) or len(pepper.encode()) < 16:
+        self.pepper = os.getenv("PASSWORD_PEPPER", "")
+        if len(self.pepper.encode()) < 16:
             raise ValueError("PASSWORD_PEPPER must be configured and at least 16 bytes")
-        self.pepper = pepper
 
     def _hash_password(self, password: str, salt: bytes | None = None) -> str:
         if not isinstance(password, str) or not 12 <= len(password) <= 128:
@@ -39,8 +34,7 @@ class AuthService:
     def register(self, email: str, password: str, display_name: str):
         user = self.users.create(email, self._hash_password(password), display_name)
         roles = set(user.get("roles") or ["user"])
-        token = self.authenticator.issue(str(user["id"]), roles)
-        return user, token
+        return user, self.authenticator.issue(str(user["id"]), roles)
 
     def login(self, email: str, password: str):
         user = self.users.by_email(email)
@@ -55,7 +49,5 @@ class AuthService:
         if not user or user.get("status") != "active":
             self.authenticator.revoke(token)
             raise SecurityError("unauthenticated", "Authentication required")
-        # Roles come from the authoritative server-side user record, not a
-        # potentially stale role snapshot embedded in an issued token.
-        roles = frozenset(user.get("roles") or ["user"])
-        return AuthContext(context.user_id, roles, context.token_id)
+        # Never trust role claims from browser or stale token snapshots.
+        return AuthContext(context.user_id, frozenset(user.get("roles") or ["user"]), context.token_id)
