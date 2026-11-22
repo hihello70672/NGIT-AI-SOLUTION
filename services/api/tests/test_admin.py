@@ -7,12 +7,12 @@ from services.api.security import AuthContext,AuditLogger,Policy,PolicyEngine,Re
 from services.api.modules.admin.service import AdminError,AdminService
 from services.api.modules.admin.api import create_admin_router
 class FakeDB:
-    def __init__(self): self.calls=[]
+    def __init__(self):self.calls=[]
     def connection(self,caller=None):
         db=self
         class Conn:
-            def __enter__(self): return self
-            def __exit__(self,*args): return False
+            def __enter__(self):return self
+            def __exit__(self,*args):return False
             def execute(self,sql,params=()):
                 db.calls.append((sql,params,caller))
                 if "GROUP BY status" in sql:return SimpleNamespace(description=[("status",),("count",)],fetchall=lambda:[("active",3)])
@@ -20,6 +20,7 @@ class FakeDB:
                 if "SELECT name" in sql:return SimpleNamespace(description=[("name",)],fetchall=lambda:[(r,) for r in params[0]])
                 if "UPDATE users" in sql:return SimpleNamespace(fetchone=lambda:("target","t@example.org","Target",params[0],"now"))
                 if "SELECT id,email,display_name,status,created_at FROM users WHERE id" in sql:return SimpleNamespace(fetchone=lambda:("target","t@example.org","Target","active","now"))
+                if "FROM audit_logs ORDER BY created_at DESC LIMIT" in sql:return SimpleNamespace(description=[("id",),("actor_user_id",),("action",),("resource_id",),("created_at",),("details",)],fetchall=lambda:[("event","a","admin.test",None,"now",{})])
                 if "INSERT INTO admin_rules" in sql or "INSERT INTO service_controls" in sql:return SimpleNamespace(description=[],fetchall=lambda:[])
                 return SimpleNamespace(description=[("id",),("email",),("display_name",),("status",),("created_at",)],fetchall=lambda:[])
         return Conn()
@@ -46,12 +47,12 @@ def test_rule_and_service_write_validation():
     with pytest.raises(AdminError):svc.create_rule(ctx,"bad rule",["admin"])
     grant=actions._approvals.request("requester","admin.services.control","api");actions._approvals.decide(grant.approval_id,"reviewer",approved=True)
     assert svc.service_control(ctx,"api",False)=={"service":"api","enabled":False}
-def test_analytics_emergency_audit_and_stop():
+def test_analytics_emergency_persistent_audit_and_stop():
     svc,_,_=setup_service();ctx=AuthContext("a",frozenset({"admin"}))
     assert svc.analytics(ctx)["enabled_model_providers"]==2
     assert svc.emergency(ctx,True,"incident")=={"stopped":True}
     with pytest.raises(SecurityError):svc.emergency(ctx,True,"again")
-    assert svc.audit_events(ctx)
+    assert svc.audit_events(ctx)[0]["action"]=="admin.test"
 def test_router_rejects_regular_user_and_has_admin_routes():
     svc,_,_=setup_service();app=FastAPI();app.include_router(create_admin_router(svc,lambda:AuthContext("u",frozenset({"user"}))),prefix="/api/v1")
     assert TestClient(app).get("/api/v1/admin/users").status_code==403

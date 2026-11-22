@@ -27,8 +27,7 @@ class AdminService:
         specs={"users":("admin.users.read","SELECT id,email,display_name,status,created_at FROM users ORDER BY created_at DESC LIMIT %s OFFSET %s"),"roles":("admin.roles.read","SELECT id,name,description FROM roles ORDER BY name LIMIT %s OFFSET %s"),"models":("admin.models.read","SELECT provider_key,display_name,enabled,config,created_at,updated_at FROM provider_configs ORDER BY provider_key LIMIT %s OFFSET %s"),"knowledge":("admin.knowledge.read","SELECT id,user_id,kind,left(content,1000) AS content,metadata,created_at FROM memories ORDER BY created_at DESC LIMIT %s OFFSET %s"),"learning-requests":("admin.learning.read","SELECT id,actor_user_id,action,resource_id,outcome,created_at,details FROM audit_logs WHERE action LIKE 'learning.%' ORDER BY created_at DESC LIMIT %s OFFSET %s"),"reports":("admin.reports.read","SELECT id,actor_user_id,action,resource_id,outcome,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s OFFSET %s"),"rules":("admin.rules.read","SELECT action,roles,approval_required,restricted,updated_at FROM admin_rules ORDER BY action LIMIT %s OFFSET %s"),"audit-logs":("admin.audit.read","SELECT id,actor_user_id,action,resource_id,outcome,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s OFFSET %s")}
         if kind not in specs:raise AdminError("unknown administrative resource")
         action,sql=specs[kind];self._authorize(context,action);params=(limit,offset)
-        if kind=="users" and query:
-            sql="SELECT id,email,display_name,status,created_at FROM users WHERE email ILIKE %s OR display_name ILIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s";params=(f"%{query[:100]}%",f"%{query[:100]}%",limit,offset)
+        if kind=="users" and query:sql="SELECT id,email,display_name,status,created_at FROM users WHERE email ILIKE %s OR display_name ILIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s";params=(f"%{query[:100]}%",f"%{query[:100]}%",limit,offset)
         return self._query(sql,params,context.user_id)
     def update_user(self,context:AuthContext,user_id:str,*,status:str|None=None,roles:list[str]|None=None)->dict[str,Any]:
         self._authorize(context,"admin.users.manage",user_id)
@@ -54,12 +53,10 @@ class AdminService:
         if {r["name"] for r in found}!=set(roles):raise AdminError("unknown role")
         current=self.policies.get(action)
         if current is not None:
-            if current.roles==frozenset(roles) and current.approval_required==approval_required and current.restricted==restricted:
-                return {"action":action,"roles":roles,"approval_required":approval_required,"restricted":restricted}
+            if current.roles==frozenset(roles) and current.approval_required==approval_required and current.restricted==restricted:return {"action":action,"roles":roles,"approval_required":approval_required,"restricted":restricted}
             raise AdminError("permission action already exists")
         self._query("INSERT INTO admin_rules(action,roles,approval_required,restricted,updated_by) VALUES (%s,%s,%s,%s,%s)",(action,roles,approval_required,restricted,context.user_id),context.user_id,fetch=False)
-        self.policies.register(Policy(action,frozenset(roles),approval_required,restricted))
-        self.audit.record(action="admin.rule.created",actor_user_id=context.user_id,resource_type="rule",resource_id=action)
+        self.policies.register(Policy(action,frozenset(roles),approval_required,restricted));self.audit.record(action="admin.rule.created",actor_user_id=context.user_id,resource_type="rule",resource_id=action)
         return {"action":action,"roles":roles,"approval_required":approval_required,"restricted":restricted}
     def service_control(self,context:AuthContext,service:str,enabled:bool)->dict[str,Any]:
         self._authorize(context,"admin.services.control",service)
@@ -78,7 +75,5 @@ class AdminService:
         return {"stopped":self.actions._stop.stopped}
     def audit_events(self,context:AuthContext,limit:int=100)->list[dict[str,Any]]:
         if isinstance(limit,bool) or not 1<=limit<=100:raise AdminError("invalid limit")
-        self._authorize(context,"admin.audit.read")
-        persistent=self._query("SELECT id,actor_user_id,action,resource_id,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s",(limit,),context.user_id)
-        return persistent if persistent else list(self.audit.events())[-limit:]
+        self._authorize(context,"admin.audit.read");return self._query("SELECT id,actor_user_id,action,resource_id,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s",(limit,),context.user_id)
 __all__=["AdminError","AdminService"]
