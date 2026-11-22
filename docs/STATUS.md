@@ -20,11 +20,11 @@ Status is based on files present in the reviewed `main` tree. Checked-in tests a
 
 ## Phase 3 — Brain, model runtime, memory and knowledge
 
-**Built and committed:** Brain supports deterministic offline intent recognition and confidence thresholds, typed request/response contracts, bounded generation, an in-process model registry, deterministic priority routing, local/self-hosted OpenAI-compatible runtimes, optional self-hosted fallback, and sanitized failure behavior. Runtime configuration comes from server environment variables; external AI APIs are not required. Evaluation tests cover intent examples, confidence, routing, local generation, opt-in fallback, validation and safe failures. Memory and knowledge modules provide authenticated owner-scoped conversations/messages and typed memories, lexical retrieval, optional vector candidate reranking, provenance-aware chunked ingestion and URL-origin allowlisting (without remote fetching).
+**Built and committed:** Brain supports deterministic offline intent recognition and confidence thresholds, typed request/response contracts, bounded generation, in-process model registry, deterministic priority routing, local/self-hosted OpenAI-compatible runtimes, optional self-hosted fallback and sanitized failures. Runtime configuration uses server environment variables; external AI APIs are not required. Evaluation tests cover intent examples, confidence, routing, local generation, opt-in fallback, validation and safe failures. Memory and knowledge provide authenticated owner-scoped conversation/message and typed-memory persistence on the existing schema, deterministic lexical retrieval, optional owner-filtered embedding vector search, bounded provenance-aware ingestion and exact URL-origin allowlisting without remote fetching. Privacy-focused source tests cover owner binding, cross-user retrieval filtering, schema usage and source verification.
 
 **Remaining:** Run Python tests and database checks; validate RLS and vector-loader ownership; assess classifier/model quality with representative evaluation data. Runtime registry/configuration is process-local and not durable; durable model administration remains future work.
 
-**Caveats:** Intent confidence measures classifier certainty, not factual correctness or response quality. Brain generation authorization remains a separate integration/security concern; do not expose generation to untrusted callers until authenticated caller authorization is integrated and tested. Origin allowlisting does not verify fetched content; embeddings are not persisted.
+**Caveats:** Intent confidence measures classifier certainty, not factual correctness or response quality. Brain generation authorization remains a separate integration/security concern; do not expose generation to untrusted callers until authenticated caller authorization is integrated and tested. Origin allowlisting does not verify fetched content; embeddings are not persisted by the current schema.
 
 ## Validation record
 
@@ -32,10 +32,12 @@ No tests or runtime checks have been run for this update. This includes Python/A
 
 ## Next work
 
-Run the documented API and web suites and resolve failures. Complete PostgreSQL migration/RLS checks with a non-owner role, verify grants and lifecycle, and validate Compose/end-to-end local startup. Review authorization boundaries and plan durable shared state before multi-worker use. Record exact commands, environment and outcomes after validation.
+Run documented API and web suites and resolve failures. Complete PostgreSQL migration/RLS checks with a non-owner role, verify grants and lifecycle, and validate Compose/end-to-end local startup. Review authorization boundaries and plan durable shared state before multi-worker use. Record exact commands, environment and outcomes only after validation.
 
 Documented Python command (not reported as run):
 
 ```bash
 PYTHONPATH=. python -m pytest services/api/tests
 ```
+
+Documented database integration tests require a disposable PostgreSQL instance; see `services/api/db/tests/README.md`.

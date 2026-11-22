@@ -49,7 +49,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     supplied = request.headers.get("X-Request-ID", "")
-    safe_id = supplied if supplied and len(supplied) <= 128 and all(c.isalnum() or c in "-_.:" for c in supplied) else str(uuid4())
+    safe_id = supplied if supplied and len(supplied) <= 128 and all(c.isalnum() or c in "-_:." for c in supplied) else str(uuid4())
     request.state.request_id = safe_id
     response = await call_next(request)
     response.headers["X-Request-ID"] = safe_id
