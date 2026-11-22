@@ -40,3 +40,12 @@ def test_validation_and_auth_errors():
     assert client.post("/api/v1/auth/register",json={"email":"bad","password":"x","display_name":""}).status_code==422
     response=client.get("/api/v1/users/me")
     assert response.status_code==401 and response.json()["error"]["code"]=="unauthenticated"
+
+def test_login_and_safe_admin_denial():
+    client.post("/api/v1/auth/register",json={"email":"login@example.com","password":"long-enough-password","display_name":"Login"})
+    response=client.post("/api/v1/auth/login",json={"email":"login@example.com","password":"long-enough-password"})
+    assert response.status_code==200
+    token=response.json()["access_token"]
+    denied=client.get("/api/v1/admin/users",headers={"Authorization":f"Bearer {token}"})
+    assert denied.status_code==403
+    assert denied.json()["error"]["code"]=="forbidden"

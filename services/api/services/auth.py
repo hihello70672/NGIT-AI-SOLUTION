@@ -27,8 +27,8 @@ class AuthService:
 
     def register(self, email: str, password: str, display_name: str) -> tuple[dict, str]:
         user = self.users.create(email, self._hash_password(password), display_name)
-        token = self.authenticator.issue(str(user["id"]), {"user"})
-        user["roles"] = ["user"]
+        token = self.authenticator.issue(str(user["id"]), set(user.get("roles", ["user"])))
+        user["roles"] = list(user.get("roles", ["user"]))
         return user, token
 
     def login(self, email: str, password: str) -> tuple[dict, str]:

@@ -78,7 +78,7 @@ def health():
 
 @app.post(settings.api_prefix + "/auth/register", response_model=TokenResponse, status_code=201, tags=["authentication"])
 def register(body: RegisterRequest):
-    user, token = auth.register(str(body.email), body.password, body.display_name.strip())
+    user, token = auth.register(str(body.email), body.password, body.display_name)
     return {"access_token":token,"user":public_user(user)}
 
 @app.post(settings.api_prefix + "/auth/login", response_model=TokenResponse, tags=["authentication"])
@@ -100,9 +100,9 @@ def get_me(context=Depends(current_user)):
 
 @app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def update_me(body: UserUpdateRequest, context=Depends(current_user)):
-    if body.display_name is None or not body.display_name.strip():
-        raise ValueError("display_name must be non-empty")
-    user = users.update_display_name(context.user_id, body.display_name.strip())
+    if body.display_name is None:
+        raise ValueError("at least one update field is required")
+    user = users.update_display_name(context.user_id, body.display_name)
     if user is None: raise SecurityError("unauthenticated", "Authentication required")
     audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return public_user(user)
