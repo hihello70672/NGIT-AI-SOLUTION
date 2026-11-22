@@ -56,3 +56,11 @@ def test_validation_duplicate_registration_and_default_deny_admin_list():
     assert client.get("/api/v1/users", headers={"Authorization": f"Bearer {token}"}).status_code == 403
     assert client.get("/api/v1/users/me").status_code == 401
     assert client.patch("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"}, json={}).status_code == 422
+
+
+def test_request_id_and_health_contract():
+    client, _ = setup_client()
+    response = client.get("/health", headers={"X-Request-ID": "trace-42"})
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "trace-42"
+    assert response.json() == {"status": "ok"}
