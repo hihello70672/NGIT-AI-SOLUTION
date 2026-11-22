@@ -1,47 +1,13 @@
-# Project status — Phases 1–5
+# Project status — Phases 1–6
 
-Status is based on files present in the reviewed `main` tree. Tests and runtime checks are only reported as executed when actually run; checked-in test sources do not establish passing results.
+Status is based on committed files on `main`. Test sources do not establish that tests passed; runtime checks are reported only when actually executed.
 
-## Phase 1 — Foundation and data layer
+## Phase 6 — Administration, rules, service control
 
-**Built:** Repository foundation and architecture/dependency/interface documentation; PostgreSQL 16 local Compose service with health check and persistent volume; environment example with placeholders; database ERD, ordered SQL migrations, reference seed data, schema assertions and runner. Compose currently starts PostgreSQL only, not API or web containers.
+**Implemented:** `services/api/modules/admin/` provides permission-gated REST and service operations for users and roles, configured model-provider listings, knowledge/memory listings, learning-request and audit/report views, rule management, service-control intent, aggregate analytics, audit events, and emergency controls. The API registers explicit admin-only actions in the existing permission engine and binds endpoint identity to authenticated `AuthContext`. User/service mutations pass through the existing restricted-action manager. Migration `0006_admin_control.sql` adds durable rule and service-control state with RLS. Administrative regression-test sources cover denial, identity binding, approval scopes, persistence calls, emergency controls and route availability.
 
-**Remains:** Execute and validate migrations and SQL assertions against PostgreSQL; verify Compose lifecycle; review schema constraints and tenant isolation under intended database roles and grants. Tests and runtime checks have not been run for this status update; no pass is claimed.
-
-**Blockers/caveats:** Database grants, non-owner row-level security behavior and migration execution remain unverified. A running PostgreSQL service and configured local environment are needed.
-
-## Phase 2 — Authentication, backend security, users, and web
-
-**Built:** Backend authentication and user services/API, password verification, opaque bearer tokens, server-derived roles, authenticated REST boundaries and ownership checks. Security code includes policy/RBAC checks, approval decisions with reviewer separation and single-use exact-scope grants, restricted-action gates, emergency stop, redacted audit events and environment-backed secret lookup. The React/TypeScript/Vite web app includes sign-in and registration, responsive workspace, overview, Brain chat, Personal Agent tasks, profile settings, read-only administrator user listing, backend API integrations and UI test sources. API and frontend READMEs document setup and operational caveats.
-
-**Remains:** Run backend and frontend test suites and frontend build; exercise API/database integration; validate authentication, authorization, ownership and approval end-to-end; conduct deployment/security review. No tests or runtime checks have been run for this work.
-
-**Blockers/caveats:** Security tokens, approvals, emergency-stop state and audit events are process-local, not durable or shared between workers; use a single worker until shared persistence is implemented and validated. Configure deployment-specific random token/password peppers rather than example placeholders. Agent workspace confinement is not an OS sandbox, and browser URL syntax validation is not an SSRF/network boundary. External AI APIs remain optional.
-
-## Phase 3 — Brain, model runtime, memory, knowledge
-
-**Built:** Deterministic offline intent recognition, confidence thresholds, typed contracts, bounded generation, in-process model registry, deterministic routing, local/self-hosted OpenAI-compatible runtime, optional self-hosted fallback and sanitized failures. Memory uses the existing owner-scoped conversations/messages/memories schema and transaction-local database identity; retrieval checks the authenticated owner's corpus and requested memory type before returning lexical or optional vector hits. Knowledge ingestion chunks caller-provided text, retains provenance and checks exact URL origins against an allowlist without fetching remote content. Optional vector search uses injected embeddings and owner-scoped candidate-loading adapters. Authenticated memory API derives owner identity from context. Phase 3 implementation and test source files are present.
-
-**Remains:** Run Brain, memory, database and API tests; validate migrations, grants and non-owner RLS; verify generation authorization before exposing it to untrusted callers. Embeddings are not persisted.
-
-**Blockers/caveats:** Optional vector integration depends on a trusted candidate loader enforcing owner/type filters; retrieval independently rejects candidates outside the loaded owner's corpus. URL allowlisting does not establish remote-content authenticity or safety and does not replace SSRF/network protections in a fetching adapter. No memory, database or runtime tests were run for this status update; no pass is claimed.
-
-## Phase 4 — Personal Agent
-
-**Built:** Deterministic fail-closed task planning; explicit typed tool allowlist; process-local owner-scoped task history; browser inspection/navigation, bounded workspace text filesystem and injected computer-control interfaces; tool observations and verification; authenticated task, history, approval request/decision, resume and rejection endpoints. Sensitive browser navigation, filesystem writes and computer-control actions use shared policy and restricted-action approval with exact task-step resource scopes, separate reviewer decisions and single-use grants. External adapters are optional and loaded only through explicit environment-configured module/callable specifications; no shell/OS-control tool is exposed. Agent unit and API test sources cover planning/registry, filesystem bounds, approval gating and resume, mismatched scopes, ownership, adapters, browser/computer interfaces and API review flow.
-
-**Remains:** Run Agent/backend tests and runtime checks. Browser adapters need deployment-level DNS/IP/redirect/response-size protections; computer adapters must provide their own constrained authorization and execution boundary. Review approval lifecycle against deployment shared-state design before multi-worker use.
-
-**Blockers/caveats:** Workspace path confinement is not an OS sandbox and does not eliminate symlink/race risks. Task records and approvals are in-memory, not durable/shared; use a single worker. No tests, builds, migrations, Compose startup or other runtime checks were run for this status update; test source presence is not evidence of passing tests.
-
-## Phase 5 — Multilingual language intelligence and modality interfaces
-
-**Built:** Reusable language service with bounded script/lexical language hints, dialect heuristics, code-switch reporting, user language profiles, conservative style adaptation, explicit Brain generator and translation adapter contracts, and owner-scoped preference-memory interface. Authenticated profile routes derive owner identity from server context. Typed, bounded voice, vision and remote-control request interfaces are provided; remote action shape requires an approval reference, but execution remains owned by an authorized adapter and shared security policy. The implementation does not require an external AI provider and does not claim actual speech, vision or device execution without injected services.
-
-**Remains:** Integrate preferences with durable Memory persistence, connect Brain generation and approved translation adapters, add modality executors only behind reviewed authorization/ownership contracts, and run language/backend/frontend tests and builds. Validate language quality and dialect coverage with representative datasets before making accuracy claims.
-
-**Blockers/caveats:** Detection is heuristic, not a validated language-identification model. Translation, Brain generation, voice, vision, and remote-control execution adapters are not configured by this module. Preference memory requires a host-provided Memory implementation. Remote-control input validation is not authorization; sensitive execution must perform immediate backend policy/approval checks and auditing. No tests or runtime checks have been run for Phase 5.
+**Caveats:** New administrative tests have not been run. Service-control rows record desired state but do not execute deployment-specific service operations. Learning-request and report listings reuse audit records because no separate learning/report domain persistence exists in the schema. The existing approval, emergency and audit engine state is process-local; the deployment must remain single-worker until shared durable state is implemented. Migration execution, database grants/RLS validation, integration tests and runtime checks remain outstanding.
 
 ## Verification record
 
-No tests, builds, migrations, Compose startup, or other runtime checks were run for this status update. The repository includes test sources, but their presence is not evidence that tests pass.
+No tests, builds, migrations, Compose lifecycle, or runtime checks were executed for this Phase 6 update. Checked-in test sources are not evidence of passing tests.
