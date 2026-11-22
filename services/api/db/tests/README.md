@@ -1,17 +1,17 @@
 # PostgreSQL schema checks
 
-Use a fresh disposable PostgreSQL 16+ database. Never point this test at production or valuable data. Required tools are `psql` and a working `DATABASE_URL` connection.
+Use only a fresh, disposable PostgreSQL 16+ database, never production or valuable data. Required tools: `psql` and a valid `DATABASE_URL`.
 
-The ordered migration runner must execute as a migration principal allowed to create the `ngit` schema and its objects. That principal is not the tenant application role. For meaningful RLS checks, separately provision a non-superuser, non-table-owner role without `BYPASSRLS`, grant only the schema/table privileges needed by application queries, and execute the tenant isolation assertions as that role. The migrations do not create or grant privileges to an application role automatically; do not use a table owner or superuser as the tenant request identity.
+Migrations must execute as a migration principal allowed to create the `ngit` schema and its objects. The integration SQL must execute using a separately provisioned non-superuser, non-table-owner application-equivalent role without `BYPASSRLS`, with necessary schema and fixture DML privileges. Migrations do not create or grant privileges to an application role.
 
-From the repository root:
+From repository root:
 
 ```sh
-# Against a fresh, disposable database; migration principal must own/create schema objects.
-DATABASE_URL=postgresql://migration_user:migration_password@localhost:5432/ngit_test \
-  sh services/api/db/tests/run.sh
+export DATABASE_URL='postgresql://migration_user:password@localhost:5432/ngit_test'
+export APP_DATABASE_URL='postgresql://ngit_test_app:password@localhost:5432/ngit_test'
+sh services/api/db/tests/run.sh
 ```
 
-The runner applies ordered migrations then executes transactional integration checks for tenant-composite foreign keys, user-scoped RLS read/write behavior, billing/provider seeds, and media/video/presentation records. Fixture rows roll back. The included runner performs both migration and test execution using the same URL; to validate RLS under a separately provisioned non-owner role, apply migrations as the migration principal first, then run `psql "$APP_DATABASE_URL" -v ON_ERROR_STOP=1 -f services/api/db/tests/test_schema.sql` with the application-role URL and ensure the role has the required table privileges. The test script's fixture inserts also need appropriate fixture privileges; if the production-like application role is deliberately read/write-limited, use a dedicated non-owner test role with the same lack of ownership and `BYPASSRLS`, granting fixture DML only on the disposable test database.
+The runner applies migrations in lexical order and executes SQL assertions through `APP_DATABASE_URL` when supplied. Assertions verify case-insensitive email uniqueness, role/usage checks, tenant composite FK constraints for conversations/messages and media/video/presentation relationships, RLS-scoped reads/writes, reference seeds and a default-disabled local provider; test fixtures roll back.
 
-Run only against a newly created disposable database: migrations use `IF NOT EXISTS` for objects and are not a general-purpose schema drift repair tool. This document describes checks and commands; it does not claim they have been executed or passed.
+Grant only privileges needed by the test role on this disposable database. Production-like roles should not receive fixture-wide DML privileges merely for these tests. Do not use table owner or superuser for tenant RLS checks. No test execution or passing result is implied by these sources or commands.

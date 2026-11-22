@@ -9,4 +9,4 @@ ON CONFLICT(plan_key) DO NOTHING;
 INSERT INTO provider_configs(provider_key,display_name,enabled,config) VALUES
  ('local','Local / self-hosted',false,'{"optional":true}'::jsonb)
 ON CONFLICT(provider_key) DO NOTHING;
-INSERT INTO schema_migrations(version) VALUES ('0002_seed_reference_data') ON CONFLICT DO NOTHING;
+INSERT INTO schema_migrations(version) VALUES('0002_seed_reference_data') ON CONFLICT DO NOTHING;

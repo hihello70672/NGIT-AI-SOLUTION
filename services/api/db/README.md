@@ -13,4 +13,4 @@ To execute tenant integration assertions, provision a distinct non-superuser/non
 
 Use transaction-local `ngit.user_id` set only by trusted API code from authenticated server context, never client input. Provider configuration holds opaque credential references, not secret values. External AI is optional. RLS is a database defense-in-depth boundary; audit logs and reference/provider configuration are privileged service data and are not tenant-readable.
 
-The SQL tests assert cross-owner composite-FK rejection, RLS visibility and write isolation, seed presence, and billing/media/presentation relationships, rolling back fixture rows. No migration or test execution is claimed unless recorded in project status after it actually runs.
+The SQL tests assert cross-owner composite-FK rejection, RLS visibility and write isolation, seed presence, uniqueness/check constraints and billing/media/presentation relationships, rolling back fixture rows. No migration or test execution is claimed unless recorded in project status after it actually runs.
