@@ -1,4 +1,4 @@
--- Disposable integration assertions; fixtures are rolled back at the end.
+-- Disposable SQL checks; fixtures are rolled back.
 BEGIN;
 SET search_path TO ngit,public;
 DO $test$
