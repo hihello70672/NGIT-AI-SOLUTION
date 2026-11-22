@@ -47,4 +47,5 @@ class AuthService:
         if not user or user.get("status") != "active":
             self.authenticator.revoke(token)
             raise SecurityError("unauthenticated", "Authentication required")
+        # Persisted roles are authoritative; never trust token/browser claims.
         return AuthContext(context.user_id, frozenset(user.get("roles") or ["user"]), context.token_id)

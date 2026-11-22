@@ -1,9 +1,10 @@
 """Opt-in PostgreSQL integration tests for the identity API and RLS context.
 
-Run with NGIT_TEST_DATABASE_URL pointing at a disposable migrated database
-and credentials for a non-owner, non-superuser role without BYPASSRLS.
+Use NGIT_TEST_DATABASE_URL for a disposable migrated database accessed by a
+non-owner, non-superuser role without BYPASSRLS.
 """
 import os
+import uuid
 
 import pytest
 
@@ -17,6 +18,7 @@ def api_client(monkeypatch):
     monkeypatch.setenv("PASSWORD_PEPPER", "integration-password-pepper")
     from fastapi.testclient import TestClient
     from services.api import app as api
+    api.db.pool.conninfo = os.environ["NGIT_TEST_DATABASE_URL"]
     api.app.dependency_overrides.clear()
     with TestClient(api.app) as client:
         yield client
@@ -24,7 +26,6 @@ def api_client(monkeypatch):
 
 
 def test_register_database_login_profile_and_logout(api_client):
-    import uuid
     email = f"api-{uuid.uuid4().hex}@example.test"
     payload = {"email": email, "password": "integration-secure-password", "display_name": "Integration"}
     created = api_client.post("/api/v1/auth/register", json=payload)
@@ -39,7 +40,6 @@ def test_register_database_login_profile_and_logout(api_client):
 
 
 def test_registration_persists_default_role(api_client):
-    import uuid
     from services.api import app as api
     email = f"role-{uuid.uuid4().hex}@example.test"
     result = api_client.post("/api/v1/auth/register", json={"email": email, "password": "integration-secure-password", "display_name": "Role"})

@@ -17,10 +17,11 @@ class UserService:
                 raise RuntimeError("user creation returned no row")
             user = self._mapping(row, ("id", "email", "display_name", "status", "created_at"))
             role = conn.execute("SELECT id FROM roles WHERE name='user'").fetchone()
-            if role:
-                role_id = role["id"] if isinstance(role, dict) else role[0]
-                conn.execute("INSERT INTO user_roles(user_id,role_id) VALUES (%s,%s) ON CONFLICT DO NOTHING", (user["id"], role_id))
-            user["roles"] = ["user"] if role else []
+            if role is None:
+                raise RuntimeError("default user role is missing; apply reference-data migrations")
+            role_id = role["id"] if isinstance(role, dict) else role[0]
+            conn.execute("INSERT INTO user_roles(user_id,role_id) VALUES (%s,%s) ON CONFLICT DO NOTHING", (user["id"], role_id))
+            user["roles"] = ["user"]
             user["password_hash"] = password_hash
             return user
 
