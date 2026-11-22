@@ -1,54 +1,48 @@
 # Project status — Phases 1–4
 
-This status records repository implementation evidence. Tests have not been run in this task; no passing result is claimed.
+This status records implementation evidence only. Tests have not been run in this task; no passing result is claimed.
 
-## Phase 1 — Foundation, architecture, database, and local environment
+## Phase 1 — Foundation, architecture, database, local environment
 
-**Built/committed:** Repository foundation and architecture documentation, approved phase plan and module boundaries, local PostgreSQL Docker Compose setup and usage documentation, environment examples, ordered SQL migrations and seed data, database schema checks/tests, and ERD documentation. The schema covers users/roles, user-scoped conversations/messages/memory, billing, optional provider configuration, media/presentation metadata, audit logs, ownership constraints, and row-level security; migration `0003` hardens role-assignment RLS.
+**Built/committed:** Repository foundation and architecture documentation, approved phase plan and module boundaries, local PostgreSQL Docker Compose setup and usage docs, environment examples, ordered SQL migrations and seed data, database schema checks/tests, and ERD documentation. The schema covers users/roles, user-scoped conversations/messages/memory, billing, optional provider configuration, media/presentation metadata, audit logs, ownership constraints, and row-level security; migration `0003` hardens role-assignment RLS.
 
-**Remaining:** Execute migrations on fresh PostgreSQL 16+; run schema/RLS checks with a non-owner, non-superuser app role; verify cross-user isolation, Compose lifecycle, and API/database integration.
+**Remaining:** Execute migrations against fresh PostgreSQL 16+; run schema and RLS tests with a non-owner, non-superuser role; verify cross-user isolation, Compose lifecycle, and API/database integration.
 
-**Blocker/risk:** Migration integrity remains unresolved. A prior task accidentally replaced and restored `services/api/db/migrations/0001_initial_schema.sql` with content that may not preserve original intent. Review/correct against intended schema before accepting Phase 1. Migrations are plain ordered SQL; apply lexicographically.
+**Blocker/risk:** The migration integrity warning regarding `0001_initial_schema.sql` remains unresolved; review the restored file against intended schema before accepting Phase 1.
 
-## Phase 2 — Authentication, security, API, and user management
+## Phase 2 — Authentication, security, API, users
 
-**Built/committed:** FastAPI registration/login/logout/current-user endpoints, protected Brain routes, optional memory and agent integration, request validation/IDs, safe error handling, password hashing, expiring/revocable opaque bearer tokens, server-derived role context, and PostgreSQL-backed identity services with transaction-local user context for RLS. The shared security module implements default-deny RBAC/resource ownership policies, approval-gated restricted actions, one-time expiring approvals requiring a distinct reviewer, emergency stop, secret-name validated environment lookup, and recursively filtered thread-safe in-process audit events. Authentication re-reads active account state and roles on each request, rather than relying on token role snapshots. API/security test sources and usage documentation are present.
+**Built/committed:** Versioned FastAPI routes for register/login/logout and current-user profile read/update, with the existing server-side opaque token and RBAC/approval services wired to PostgreSQL-backed user records. Caller identity and active status/roles are reloaded server-side per request. Passwords use scrypt and a deployment-injected pepper; request schemas reject unknown fields; safe errors and request correlation IDs are standardized. Existing Brain routes require authenticated callers. The psycopg adapter applies `ngit.user_id` transaction-locally for user-scoped SQL. Existing module services and task interface are retained; background tasks remain synchronous/in-process and no unjustified WebSocket was added. OpenAPI describes the REST interface. API/config/database tests were added or extended; tests were not executed here.
 
-**Runtime boundaries:** Authentication tokens, approvals, emergency stop, and audit events are process-local and not restart- or multi-worker-safe. They require an approved shared persistence adapter before deployment with multiple workers or reliance on durable security state. Background tasks are in-process and not durable. Password and token peppers must be provided as deployment environment secrets; `.env.example` contains no usable authentication pepper values. Never use a committed or example credential as a production secret. Audit redaction is best-effort defense-in-depth; callers must not pass sensitive data.
+**Runtime boundaries:** Opaque tokens, approvals, emergency-stop state, and audit events are process-local, not durable or multi-worker safe. Use one worker only until approved persistence is introduced. Deployment must set unique strong `AUTH_TOKEN_PEPPER` and `PASSWORD_PEPPER` secrets; no secret is committed. `/health` checks process liveness only, not database readiness.
 
-**Remaining:** Run API/unit tests and live database integration; verify migration compatibility, password/token/approval/audit persistence expectations, transaction-local RLS context and cross-user isolation, and authorization at each sensitive Brain/tool operation. Review the current action-specific policy coverage before exposing additional actions. Configure peppers through deployment secrets; no production secret manager is selected.
+**Remaining:** Run API/security unit tests; validate migrations and user transactions on disposable PostgreSQL, including transaction-local RLS context and cross-user isolation; review sensitive Brain/tool authorization; exercise full startup and web/API integration. External AI integrations stay optional.
 
-**Blocker/risk:** External AI integrations are optional and unconfigured. Shared persistence for security state and durable background execution are not implemented. Review caller context and specific authorization checks before enabling sensitive generation or tools.
+**Blocker/risk:** Shared durable security-state storage and production secrets management are undecided. Do not treat current process-local security state as durable.
 
-## Phase 3 — Brain, model runtime, memory, and knowledge
+## Phase 3 — Brain, runtime, memory, knowledge
 
-**Built/committed:** Brain contracts and runtime under `services/api/modules/brain`. Deterministic offline intent classification with confidence scores (not represented as a trained model), generation orchestration, explicit in-process model registry and priority routing, timeout-bounded OpenAI-compatible chat-completion adapters, server-environment-configured local and self-hosted endpoints, model selection, and opt-in self-hosted fallback when a configured primary runtime fails. Memory service persists owner-scoped conversations/messages/typed memories and provides lexical/vector retrieval plus provenance-verified knowledge chunking. Authenticated Brain and memory REST routers are mounted; optional embedding search filters candidates to requested owner. No third-party provider is required for basic operation.
+**Built/committed:** Existing modular Brain, memory, runtime, and API modules remain in place; implementation details and evidence are tracked in their module docs and test sources.
 
-**Evaluation present:** Brain and memory tests cover classifier examples, registry/model behavior, optional fallback, input/limit validation, safe runtime failures, owner isolation, vector filtering, and source verification. These are test sources, not evidence of execution or model quality.
-
-**Remaining:** Run Brain, memory, API/web, and live database/RLS suites; validate configured local/self-hosted runtimes against compatible endpoints; verify authentication, database integration, and caller ownership in the complete service. Runtime registries/configuration are process-local; durable/multi-worker administration is not provided.
-
-**Blocker/risk:** Runtime and tests remain unverified. Configure endpoint credentials only through deployment environment/secrets. Do not expose generation to untrusted users without deployment-appropriate authentication and authorization.
+**Remaining:** Run runtime, evaluation, API, ownership, and database/RLS validation as scheduled by the phase gate.
 
 ## Phase 4 — Personal Agent
 
-**Built/committed:** Conservative deterministic task planning, explicit tool registry, synchronous owner-scoped task execution/history, observations and tool-result verification, authenticated REST endpoints, sandboxed UTF-8 workspace file operations, HTTP(S)-only browser inspection/navigation adapters, and injected computer-control interface with no implicit shell/OS access. Workspace writes, browser navigation, and computer actions are registered as restricted approval-required actions using the shared `RestrictedActionManager`/`ApprovalEngine`; execution pauses for a distinct reviewer and resumes only with an exact one-time action/resource grant. Approval rejection, failure, verification, and task ownership are handled fail-closed. Agent unit/API test sources are included; routes mount only when `NGIT_AGENT_WORKSPACE` is configured.
+**Built/committed:** Existing Agent module and shared security approval engine are preserved; current execution/task behavior is documented as synchronous and in-process where applicable.
 
-**Remaining:** Run Agent and broader API tests; validate browser/computer adapters in an explicitly provisioned environment. Consider persistence only through approved shared security/persistence architecture. Task history and approval state are in-memory and execution is synchronous, not a durable background worker.
-
-**Validation record:** Tests have not been run in this task. No runtime, integration, browser, computer-control, database, or passing test result is claimed. External AI APIs are not required by the planner.
+**Remaining:** Run Agent/API tests and verify adapters, authorizations, and approvals in the provisioned environment.
 
 ## Validation record
 
-Tests have not been run in this task. API, database/RLS, web, and integration results remain unverified; no passing result is claimed. Compose startup, migration runtime behavior, and local/self-hosted model endpoint behavior have also not been verified here.
+Tests were not run for this status update. API, security, database/RLS, web, and integration outcomes remain unverified; no passing result is claimed. The restored migration integrity warning, startup behavior, database connection and configured local/self-hosted model endpoint behavior also remain to be verified.
 
 ## Phase sequence and boundaries
 
-See [PHASE_PLAN.md](PHASE_PLAN.md) for the approved 12-phase delivery order. See [DEPENDENCY_MAP.md](DEPENDENCY_MAP.md), [AGENT_ASSIGNMENTS.md](AGENT_ASSIGNMENTS.md), and [interfaces/SHARED_PROTOCOLS.md](interfaces/SHARED_PROTOCOLS.md) for module dependencies and boundary rules.
+See [PHASE_PLAN.md](PHASE_PLAN.md) for the approved delivery sequence. Do not introduce WebSockets or durable task claims without the corresponding approved contract and implementation evidence.
 
 ## Note
 
-The repository contains later-phase web implementation, but this status scope records Phases 1–4. The migration-integrity warning above remains the concrete blocker for accepting Phase 1 database work.
+The repository contains later-phase web implementation, but this status scope records Phases 1–4. The migration-integrity warning above remains a concrete blocker for accepting Phase 1 database work.
 
 ## Phase 3 implementation record
 
@@ -56,10 +50,12 @@ The Brain runtime and deterministic evaluation suite were already present at the
 
 ## Phase 4 implementation record
 
-The Personal Agent implementation extends the existing agent module and shared security approval engine. Tool actions are explicit; the planner does not infer arbitrary commands. Approval routes create pending grants through the shared approval service, and a distinct reviewer must decide them before a matching grant is consumed. Task state/history is in-memory and does not survive process restart.
+The Personal Agent implementation extends the existing agent module and shared security approval engine. Tool actions are explicit; no arbitrary commands are inferred. Approval requests require a distinct reviewer, and a matching grant is consumed once. Task history and approval state remain process-local; execution is synchronous and not a durable worker.
 
 ## Phase 2 security implementation note
 
-The security primitives are useful for a single-process development deployment only. In particular, in-memory token revocation, emergency-stop state, approvals, and audit events are not durable. Configure `AUTH_TOKEN_PEPPER` and `PASSWORD_PEPPER` through deployment secret injection; never commit real values. A shared durable security-state implementation and production-grade secret-management integration remain open architecture decisions.
+Security primitives are for a single-process development deployment only. In-memory token revocation, emergency-stop state, approvals, and audit events are not durable or restart/multi-worker safe. Set `AUTH_TOKEN_PEPPER` (at least 32 bytes) and `PASSWORD_PEPPER` (at least 16 bytes) through deployment secret injection; never commit real values. `.env.example` intentionally does not include usable authentication pepper values. Audit redaction is defense in depth; callers must not pass sensitive data.
+
+API routes are documented in OpenAPI at `/openapi.json` and `/docs`. The database connection uses transaction-local identity context for RLS. Tests are source coverage only until executed; no result is asserted.
 
 Tests were not run for this status update.
