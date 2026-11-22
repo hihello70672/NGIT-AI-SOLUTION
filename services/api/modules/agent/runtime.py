@@ -310,7 +310,7 @@ class AgentService:
             raise AgentError("invalid_limit", "Limit must be between 1 and 100")
         with self._lock:
             return sorted((r for r in self._records.values() if r.owner_id == context.user_id),
-                          key=lambda r: r.created_at, reverse=True)[:limit]
+                          key=lambda r: datetime.fromisoformat(r.created_at), reverse=True)[:limit]
 
 
 def _load_adapter(spec: str) -> Callable[..., Any]:

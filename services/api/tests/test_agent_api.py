@@ -65,7 +65,14 @@ def test_sensitive_approval_requires_distinct_reviewer_and_exact_resume():
             grant = grant_response.json()
             self_decision = client.post(f"/api/v1/agent/approvals/{grant['approval_id']}/decision", json={"approved": True})
             assert self_decision.status_code == 403
-            approvals.decide(grant["approval_id"], "reviewer", approved=True)
+            reviewer_app = api_module.app
+            original_decision_overrides = dict(reviewer_app.dependency_overrides)
+            reviewer_app.dependency_overrides[api_module.current_user] = lambda: AuthContext("reviewer", frozenset({"user"}))
+            try:
+                decided = TestClient(reviewer_app).post(f"/api/v1/agent/approvals/{grant['approval_id']}/decision", json={"approved": True})
+                assert decided.status_code == 200 and decided.json()["status"] == "approved"
+            finally:
+                reviewer_app.dependency_overrides = original_decision_overrides
             resumed = client.post(f"/api/v1/agent/tasks/{submitted['task_id']}/resume", json={"approval_id": grant["approval_id"]})
             assert resumed.status_code == 200 and resumed.json()["state"] == "succeeded"
             assert client.post(f"/api/v1/agent/tasks/{submitted['task_id']}/resume", json={"approval_id": grant["approval_id"]}).status_code == 200
