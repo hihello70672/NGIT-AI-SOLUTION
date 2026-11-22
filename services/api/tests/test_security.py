@@ -83,12 +83,21 @@ class AuthorizationTests(unittest.TestCase):
         self.stop.reset("admin")
         self.assertFalse(self.stop.stopped)
 
-    def test_audit_redacts_sensitive_nested_keys(self):
+    def test_audit_redacts_nested_sensitive_keys_and_defends_internal_state(self):
         self.audit.record(action="test", details={"access_token": "do-not-log", "nested": {"api-key": "no", "safe": "yes"}})
-        rendered = repr(self.audit.events())
-        self.assertNotIn("do-not-log", rendered)
-        self.assertNotIn('"no"', rendered)
-        self.assertIn("yes", rendered)
+        event = self.audit.events()[0]
+        self.assertNotIn("do-not-log", repr(event))
+        self.assertNotIn('"no"', repr(event))
+        event["details"]["nested"]["safe"] = "tampered"
+        self.assertEqual(self.audit.events()[0]["details"]["nested"]["safe"], "yes")
+        self.audit.record(action="opaque", details={"label": "Bearer super-secret-token"})
+        self.assertNotIn("super-secret-token", repr(self.audit.events()))
+
+    def test_policy_rejects_invalid_restricted_and_role_configuration(self):
+        with self.assertRaises(ValueError):
+            PolicyEngine().register(Policy("action", frozenset({"user"}), restricted=True))
+        with self.assertRaises(ValueError):
+            PolicyEngine().register(Policy("good.action", frozenset({"Admin"})))
 
     def test_secret_names_are_validated_and_values_not_transformed(self):
         store = SecretStore({"VALID_SECRET_2": "example-only"})

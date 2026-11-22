@@ -1,7 +1,7 @@
 """Shared in-process security primitives for NGIT's modular API.
 
-Tokens, approvals and audit events are process-local. They are suitable for the
-current development implementation, not a multi-worker production deployment.
+Tokens, approvals and audit events are process-local and are not suitable for
+multi-worker production deployment without approved shared persistence.
 """
 from __future__ import annotations
 
@@ -21,8 +21,7 @@ class SecurityError(Exception):
     """Expected security rejection with a stable machine-readable code."""
     def __init__(self, code: str, message: str):
         super().__init__(message)
-        self.code = code
-        self.message = message
+        self.code, self.message = code, message
 
 
 @dataclass(frozen=True)
@@ -95,8 +94,8 @@ class Authenticator:
 
 
 class AuditLogger:
-    """Thread-safe audit sink with conservative recursive sensitive-key filtering."""
-    _forbidden = {"password", "token", "secret", "credential", "prompt", "authorization", "cookie", "api_key"}
+    """Thread-safe audit sink with recursive sensitive-key and value filtering."""
+    _forbidden = {"password", "token", "secret", "credential", "prompt", "authorization", "cookie", "apikey"}
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -118,6 +117,9 @@ class AuditLogger:
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, str):
+            # Do not accept opaque credential-like strings in otherwise safe fields.
+            if re.search(r"(?i)\b(bearer\s+\S+|(?:sk|pk|api)[-_][a-z0-9_-]{12,})", value):
+                return "[REDACTED]"
             return value[:512]
         return type(value).__name__
 
@@ -138,7 +140,9 @@ class AuditLogger:
 
     def events(self) -> tuple[dict[str, Any], ...]:
         with self._lock:
-            return tuple(dict(event) for event in self._events)
+            # Defensive deep copy: consumers must not mutate retained audit history.
+            import copy
+            return tuple(copy.deepcopy(event) for event in self._events)
 
 
 class PolicyEngine:
@@ -146,12 +150,23 @@ class PolicyEngine:
     def __init__(self, policies: Mapping[str, Policy] | None = None):
         self._policies = dict(policies or {})
         for action, policy in self._policies.items():
-            if action != policy.action:
+            if not isinstance(policy, Policy) or action != policy.action:
                 raise ValueError("policy key/action mismatch")
+            self._validate(policy)
+
+    @staticmethod
+    def _validate(policy: Policy) -> None:
+        if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,127}", policy.action):
+            raise ValueError("invalid policy action")
+        if any(not isinstance(role, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", role) for role in policy.roles):
+            raise ValueError("invalid policy role")
+        if policy.restricted and not policy.approval_required:
+            raise ValueError("restricted policies must require approval")
 
     def register(self, policy: Policy) -> None:
-        if not isinstance(policy, Policy) or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,127}", policy.action):
-            raise ValueError("invalid policy action")
+        if not isinstance(policy, Policy):
+            raise ValueError("invalid policy")
+        self._validate(policy)
         if policy.action in self._policies:
             raise ValueError("policy action must be unique")
         self._policies[policy.action] = policy
@@ -259,16 +274,14 @@ class RestrictedActionManager:
             policy = self._policies.authorize(context, action, owner_id=owner_id)
             if policy.restricted:
                 self._stop.check()
-            if policy.approval_required:
-                if not approval_id or not self._approvals.consume(approval_id, actor_user_id=context.user_id,
-                                                                  action=action, resource_id=resource_id):
-                    raise SecurityError("approval_required", "A valid approval is required")
+            if policy.approval_required and (not approval_id or not self._approvals.consume(
+                    approval_id, actor_user_id=context.user_id, action=action, resource_id=resource_id)):
+                raise SecurityError("approval_required", "A valid approval is required")
         except SecurityError as exc:
             self._audit.record(action=action or "unknown", actor_user_id=getattr(context, "user_id", None),
                                resource_id=resource_id, outcome="denied", details={"error_code": exc.code})
             raise
-        self._audit.record(action=action, actor_user_id=context.user_id, resource_id=resource_id,
-                           outcome="authorized")
+        self._audit.record(action=action, actor_user_id=context.user_id, resource_id=resource_id, outcome="authorized")
 
 
 def create_default_security() -> tuple[Authenticator, PolicyEngine, ApprovalEngine, AuditLogger, EmergencyStop, RestrictedActionManager]:

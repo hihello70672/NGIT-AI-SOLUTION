@@ -21,4 +21,4 @@ This file records committed repository evidence, not proof of runtime behavior o
 
 External AI APIs remain optional. These status statements describe committed code only; they do not assert tests passed.
 
-**Phase 2 security follow-up:** hardened audit-key redaction, validates role/action identifiers, rejects approval of expired grants, and regression tests these cases. No test suite execution is claimed here.
+**Phase 2 security follow-up:** the security regression suite now additionally covers audit-view isolation, opaque credential-like value redaction, and restrictive policy configuration. Tests have not been run in this authoring environment.
