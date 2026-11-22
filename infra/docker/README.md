@@ -1,35 +1,29 @@
 # Local Docker environment
 
-The root `compose.yaml` starts PostgreSQL 16 only. The API and web client are not containerized: follow their own READMEs for those development workflows. No migrations are automatically applied by the database container.
+The root `compose.yaml` starts PostgreSQL 16 only. API and web containers are not defined; follow their own READMEs for development setup. The database container does not automatically apply schema migrations.
 
 ## Start
 
-From the repository root:
+From repository root:
 
 ```sh
 cp .env.example .env
-# Replace the example passwords and peppers with unique random local values.
+# Replace example passwords and peppers with unique random local values.
 docker compose config
 docker compose up -d db
 docker compose ps
 ```
 
-The database uses a named volume (`ngit_postgres_data`) and a readiness check. The one-time init script creates a distinct `ngit_app` login but deliberately grants no schema or object privileges; do not use this login until reviewed, least-privilege grants and required migrations are applied. Migration execution should use a separately controlled migration principal. Init scripts run only when the volume is first initialized, so changing the role values after initialization does not rotate an existing role password.
+Compose uses a named persistent volume (`ngit_postgres_data`) and a readiness check. A first-initialization SQL script creates the separate `NGIT_APP_USER` login using `NGIT_APP_PASSWORD`. It grants no schema/table access: provision reviewed least-privilege database grants before using the login. Use a separately controlled migration principal to apply the ordered migrations. Docker init scripts run only when the data directory is first initialized; updating role variables later does not rotate an existing database role's password.
 
-The default host port is `5432`; set `POSTGRES_PORT` if it is occupied. The database is published only on the local Docker host binding configured by Compose. Do not expose this local setup to untrusted networks.
+The default published host port is 5432; set `POSTGRES_PORT` if occupied. Do not expose this local database setup to untrusted networks.
 
-## Stop and data recovery
+## Stop and recovery
 
 ```sh
 docker compose down
 ```
 
-This stops containers and preserves the database volume. To intentionally remove local database data as well:
+This stops containers and preserves the named volume. To deliberately delete local database data, use `docker compose down -v` only after confirming the data is disposable. This Compose setup does not define production backup/recovery policy; take a suitable backup before destructive operations.
 
-```sh
-docker compose down -v
-```
-
-That removal is destructive. Back up any data needed before deleting the volume. This local Compose setup does not establish a production backup/recovery policy.
-
-Never commit `.env` or production credentials. Environment variables are configuration inputs, not a production secrets-management solution. See the root README and `services/api/db/README.md` for API and migration setup. Compose lifecycle, migrations, grants, and row-level security must be executed and verified before claiming validation.
+Never commit `.env` or real credentials. Environment variables are configuration, not production secrets management. See root README, `services/api/README.md`, and `services/api/db/README.md`. Migrations, role grants, RLS/isolation, and Compose lifecycle require actual execution and verification before validation claims.
