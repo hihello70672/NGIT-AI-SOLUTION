@@ -1,27 +1,25 @@
 # Personal Agent interface
 
-The agent is an authenticated module under `/api/v1/agent`. It owns planning, an explicit tool registry, execution, observations, verification and in-process task history. `AgentService` accepts a shared `AuthContext` and a shared `RestrictedActionManager`; it does not implement competing authorization or approval logic.
+The authenticated agent module is mounted below `/api/v1/agent` only when the API is configured with an explicitly provisioned `NGIT_AGENT_WORKSPACE`. It owns task planning, tool registry, execution, observations, verification and in-process task history. It uses the existing shared `AuthContext`, `RestrictedActionManager` and `ApprovalEngine`; no competing policy implementation is introduced.
 
-## Contracts
+## Contracts and safety
 
-- `AgentPlanner.plan(owner_id, goal) -> AgentPlan` returns an inspectable bounded plan. The built-in planner handles explicit file read/write and HTTP(S) inspection intents; ambiguous goals are rejected. Future planner adapters must keep the same validation boundary.
-- `ToolRegistry` only exposes registered capabilities. Tool handlers accept validated argument mappings and return `ToolResult(value, observation, verified)`.
-- `AgentService.submit` creates a task and executes safe steps. Sensitive write/navigation/computer actions are checked via `RestrictedActionManager.authorize` with `agent.tool.<tool-name>` and a task-step resource ID. A missing approval leaves the task in `awaiting_approval` without executing the side effect. A one-time shared approval must match actor, action and resource and be issued by a distinct reviewer. Approval rejection or mismatch fails closed.
-- Observations and verification are stored with the task. Failed verification never reports success. `get` and `history` are owner-scoped.
-- `FilesystemInterface` resolves every path under its configured workspace and caps text reads/writes at 1 MB. `BrowserInterface` accepts only HTTP(S), has no implicit browser dependency, and defaults to safe read-only observation. `ComputerControlInterface` has no shell/OS implementation and requires an explicit adapter.
-- Task history is in-process and is not durable across API process restarts. The shared task contract does not select a runner; durable execution is deferred until approved.
+- `AgentPlanner.plan(owner_id, goal)` returns a bounded, inspectable plan. The deterministic built-in supports clear workspace file reads/writes and HTTP(S) page inspection; ambiguous tasks are rejected. Tool registry membership and handler validation remain mandatory for any planner adapter.
+- `ToolRegistry` is an explicit capability allowlist. Handlers return `ToolResult(value, observation, verified)`; failed verification cannot report task success.
+- Sensitive capability actions use `agent.tool.<tool-name>` and a task-step resource ID. The API registers filesystem write, browser navigation and computer action policies as restricted and approval-required in the shared policy engine. Missing approval pauses the task before the handler runs. A different authorized reviewer must decide the shared one-time grant; it must match exact actor/action/resource and is consumed before the side effect. Rejection, expiry, mismatch and emergency stop fail closed.
+- Task reads/history are scoped to authenticated owner. History is in-process and not durable across restarts; long-running/background execution is not claimed.
+- Filesystem paths are resolved under the configured workspace; UTF-8 text reads and writes are limited to 1 MB. Browser adapter accepts HTTP(S) URLs only, does not fetch arbitrary content by default, and has no implicit browser dependency. Computer control has no shell/OS implementation and requires explicit adapter injection.
 
 ## REST
 
-- `GET /agent/tools`
-- `POST /agent/tasks` with `{ "goal": "..." }` (202)
-- `GET /agent/tasks?limit=50`, `GET /agent/tasks/{task_id}`
-- `POST /agent/approvals?task_id=...` requests a grant through the injected shared approval engine; a separate reviewer must decide it through the existing approval workflow.
-- `POST /agent/tasks/{task_id}/approve` with `{ "approval_id": "..." }` resumes a pending task.
-- `POST /agent/tasks/{task_id}/reject`
+- `GET /api/v1/agent/tools`
+- `POST /api/v1/agent/tasks` with `{ "goal": "..." }` (202)
+- `GET /api/v1/agent/tasks?limit=50`; `GET /api/v1/agent/tasks/{task_id}`
+- `POST /api/v1/agent/approvals?task_id=...` creates a pending grant in the existing approval engine. An existing authorized reviewer decides it using the shared workflow.
+- `POST /api/v1/agent/tasks/{task_id}/approve` with `{ "approval_id": "..." }` resumes a pending task; `/reject` rejects it.
 
-All routes use authenticated caller context. Client-provided owner IDs, tool names, policy decisions and arbitrary callables are never trusted. Agent endpoints are only mounted when the API supplies an isolated workspace configuration and the shared approval engine; no implicit host filesystem or computer access is enabled.
+All routes require authenticated caller context. Client-supplied owner, policy decisions, arbitrary tool callables or resource authorization are not accepted. Agent REST routes are not exposed without workspace configuration.
 
-## Verification
+## Tests
 
-Run `PYTHONPATH=. python -m unittest discover -s services/api/tests` from repository root. Agent tests use temporary workspaces and fake browser/computer adapters; they do not access real websites or control a desktop.
+Run `PYTHONPATH=. python -m unittest discover -s services/api/tests` from repository root. Agent tests use temporary workspaces and injected fake browser/computer adapters; they do not visit real websites or control a desktop.

@@ -4,7 +4,6 @@ Tools are explicit capabilities; sensitive calls are authorized by the shared
 RestrictedActionManager before any handler can cause a side effect.
 """
 from __future__ import annotations
-
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -13,23 +12,19 @@ from threading import RLock
 from typing import Any, Callable, Mapping
 from urllib.parse import urlparse
 from uuid import uuid4
-
 from services.api.security import AuthContext, RestrictedActionManager, SecurityError
 
-
 class AgentError(ValueError):
-    """Safe, machine-readable agent failure."""
+    """Safe machine-readable agent failure."""
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code, self.message = code, message
-
 
 @dataclass(frozen=True)
 class PlannedStep:
     tool_name: str
     arguments: Mapping[str, Any]
     description: str
-
 
 @dataclass(frozen=True)
 class AgentPlan:
@@ -39,13 +34,11 @@ class AgentPlan:
     steps: tuple[PlannedStep, ...]
     created_at: str
 
-
 @dataclass(frozen=True)
 class ToolResult:
     value: Any
     observation: str
     verified: bool
-
 
 @dataclass
 class TaskRecord:
@@ -61,14 +54,12 @@ class TaskRecord:
     error: str | None = None
     pending_approval_id: str | None = None
 
-
 @dataclass(frozen=True)
 class ToolDefinition:
     name: str
     description: str
     sensitive: bool
     handler: Callable[[Mapping[str, Any]], ToolResult]
-
 
 class ToolRegistry:
     """Explicit allowlist for agent capabilities."""
@@ -92,9 +83,8 @@ class ToolRegistry:
         return [{"name": t.name, "description": t.description, "sensitive": t.sensitive}
                 for t in sorted(self._tools.values(), key=lambda item: item.name)]
 
-
 class BrowserInterface:
-    """Adapter-based browser boundary; navigation is registered as sensitive."""
+    """Adapter-based browser boundary; navigation is sensitive."""
     def __init__(self, reader: Callable[[str], str] | None = None,
                  navigator: Callable[[str], Any] | None = None) -> None:
         self.reader = reader or (lambda url: f"Browser adapter unavailable for {urlparse(url).netloc}")
@@ -121,9 +111,8 @@ class BrowserInterface:
             raise AgentError("tool_unavailable", "Browser navigation adapter is not configured")
         return ToolResult(self.navigator(url), "Browser navigation completed", True)
 
-
 class FilesystemInterface:
-    """Workspace-sandboxed UTF-8 text reads and bounded writes."""
+    """Workspace-sandboxed UTF-8 text access with bounded writes."""
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -154,12 +143,10 @@ class FilesystemInterface:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         verified = path.read_text(encoding="utf-8") == content
-        return ToolResult({"path": str(path.relative_to(self.root)), "bytes": len(content.encode("utf-8"))},
-                          "File written", verified)
-
+        return ToolResult({"path": str(path.relative_to(self.root)), "bytes": len(content.encode("utf-8"))}, "File written", verified)
 
 class ComputerControlInterface:
-    """No shell or OS control is implicit; a caller must supply a bounded adapter."""
+    """No shell or OS control is implicit; the adapter must be explicitly supplied."""
     def __init__(self, adapter: Callable[[str, Mapping[str, Any]], Any] | None = None) -> None:
         self.adapter = adapter
 
@@ -171,9 +158,8 @@ class ComputerControlInterface:
             raise AgentError("tool_unavailable", "Computer-control adapter is not configured")
         return ToolResult(self.adapter(action, args), f"Computer action {action} completed", True)
 
-
 class AgentPlanner:
-    """Conservative planner for explicit inspectable requests."""
+    """Conservative planner for explicit, inspectable requests."""
     def plan(self, owner_id: str, goal: str) -> AgentPlan:
         if not owner_id or not isinstance(goal, str) or not goal.strip() or len(goal) > 4000:
             raise AgentError("invalid_goal", "A non-empty goal of at most 4000 characters is required")
@@ -194,10 +180,8 @@ class AgentPlanner:
                     raise AgentError("plan_unavailable", "Could not safely turn this goal into an explicit tool plan")
         return AgentPlan(str(uuid4()), owner_id, text, tuple(steps), datetime.now(timezone.utc).isoformat())
 
-
 class AgentService:
-    def __init__(self, tools: ToolRegistry, permissions: RestrictedActionManager,
-                 planner: AgentPlanner | None = None) -> None:
+    def __init__(self, tools: ToolRegistry, permissions: RestrictedActionManager, planner: AgentPlanner | None = None) -> None:
         self.tools, self.permissions = tools, permissions
         self.planner = planner or AgentPlanner()
         self._records: dict[str, TaskRecord] = {}
@@ -240,13 +224,11 @@ class AgentService:
                         if exc.code == "approval_required":
                             with self._lock:
                                 record.state, record.updated_at = "awaiting_approval", self._now()
-                                record.observations.append({"step": index, "state": "approval_required",
-                                                            "action": action, "resource_id": resource_id})
+                                record.observations.append({"step": index, "state": "approval_required", "action": action, "resource_id": resource_id})
                             return record
                         raise
                 result = tool.handler(step.arguments)
-                record.observations.append({"step": index, "tool_name": tool.name,
-                    "observation": result.observation, "verified": result.verified})
+                record.observations.append({"step": index, "tool_name": tool.name, "observation": result.observation, "verified": result.verified})
                 if not result.verified:
                     raise AgentError("verification_failed", "Tool result could not be verified")
                 results.append(result.value)
@@ -269,30 +251,23 @@ class AgentService:
             pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
             if pending is None:
                 raise AgentError("invalid_task_state", "No pending action requires approval")
-            action, resource_id = pending["action"], pending["resource_id"]
-            index = pending["step"]
+            action, resource_id, index = pending["action"], pending["resource_id"], pending["step"]
         try:
             self.permissions.authorize(context, action, resource_id, approval_id=approval_id)
         except SecurityError as exc:
             record.state, record.error, record.updated_at = "failed", exc.code, self._now()
             return record
-        # The manager's grant is one-time and was consumed above. Continue at the
-        # pending step without reusing a consumed grant; subsequent sensitive steps
-        # get their own approval checkpoint.
+        # The shared one-time grant is consumed above, before resuming the side effect.
         with self._lock:
             record.observations = [o for o in record.observations if o.get("state") != "approval_required"]
-            record.pending_approval_id = None
-            record.state = "running"
-        results = []
-        # Recover already completed results from observations is intentionally not
-        # possible for arbitrary tool values; this single-step plan resumes safely.
+            record.pending_approval_id, record.state = None, "running"
         if len(plan.steps) != 1 or index != 0:
             record.state, record.error, record.updated_at = "failed", "resume_not_supported", self._now()
             return record
         try:
-            result = self.tools.get(plan.steps[index].tool_name).handler(plan.steps[index].arguments)
-            record.observations.append({"step": index, "tool_name": plan.steps[index].tool_name,
-                "observation": result.observation, "verified": result.verified})
+            step = plan.steps[index]
+            result = self.tools.get(step.tool_name).handler(step.arguments)
+            record.observations.append({"step": index, "tool_name": step.tool_name, "observation": result.observation, "verified": result.verified})
             if not result.verified:
                 raise AgentError("verification_failed", "Tool result could not be verified")
             record.result, record.state, record.error = result.value, "succeeded", None
@@ -324,13 +299,10 @@ class AgentService:
         if not 1 <= limit <= 100:
             raise AgentError("invalid_limit", "Limit must be between 1 and 100")
         with self._lock:
-            return sorted((r for r in self._records.values() if r.owner_id == context.user_id),
-                          key=lambda r: r.created_at, reverse=True)[:limit]
+            return sorted((r for r in self._records.values() if r.owner_id == context.user_id), key=lambda r: r.created_at, reverse=True)[:limit]
 
-
-def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager,
-                workspace: str | Path, browser: BrowserInterface | None = None,
-                computer: ComputerControlInterface | None = None) -> AgentService:
+def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager, workspace: str | Path,
+                browser: BrowserInterface | None = None, computer: ComputerControlInterface | None = None) -> AgentService:
     browser, computer = browser or BrowserInterface(), computer or ComputerControlInterface()
     fs = FilesystemInterface(workspace)
     tools.register(ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect))
@@ -340,9 +312,7 @@ def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager,
     tools.register(ToolDefinition("computer.perform", "Approval-gated computer action via configured adapter", True, computer.perform))
     return AgentService(tools, permissions)
 
-
 def public_record(record: TaskRecord) -> dict[str, Any]:
-    return {"task_id": record.task_id, "goal": record.goal, "state": record.state,
-        "created_at": record.created_at, "updated_at": record.updated_at, "plan": record.plan,
-        "observations": record.observations, "result": record.result, "error": record.error,
-        "pending_approval_id": record.pending_approval_id}
+    return {"task_id": record.task_id, "goal": record.goal, "state": record.state, "created_at": record.created_at,
+        "updated_at": record.updated_at, "plan": record.plan, "observations": record.observations,
+        "result": record.result, "error": record.error, "pending_approval_id": record.pending_approval_id}
