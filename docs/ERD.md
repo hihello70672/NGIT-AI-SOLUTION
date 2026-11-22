@@ -1,6 +1,6 @@
 # NGIT PostgreSQL ERD
 
-Application domain tables are isolated in schema `ngit`. Identifiers are UUID and timestamps are `timestamptz`. Child/parent composite keys include tenant ownership where appropriate.
+Application tables are isolated in the `ngit` schema. UUID identifiers and `timestamptz` timestamps are used throughout. Composite tenant keys ensure child records cannot reference another user's parent records.
 
 ```mermaid
 erDiagram
@@ -10,7 +10,7 @@ erDiagram
   CONVERSATIONS ||--o{ MESSAGES : contains
   USERS ||--o{ MESSAGES : owns
   USERS ||--o{ MEMORIES : owns
-  USERS ||--|| BILLING_ACCOUNTS : has
+  USERS ||--o| BILLING_ACCOUNTS : has
   USERS ||--o{ SUBSCRIPTIONS : subscribes
   BILLING_PLANS ||--o{ SUBSCRIPTIONS : defines
   SUBSCRIPTIONS ||--o{ USAGE_RECORDS : measures
@@ -24,8 +24,8 @@ erDiagram
   USERS o|--o{ AUDIT_LOGS : acts
 ```
 
-`provider_configs` is optional global metadata, stores opaque credential references only, defaults disabled, and never makes external AI mandatory. `schema_migrations` records applied SQL. Audit logs, roles and reference/provider configuration are privileged service data and are not end-user-readable.
+`provider_configs` contains optional global provider metadata and opaque credential references only; no secret material is stored and external AI is not required. `schema_migrations` records applied migration versions. Role assignments, audit logs, provider metadata, billing reference plans, and schema bookkeeping are privileged service data, not user-readable data.
 
-Forced RLS protects user-scoped records. Trusted API code sets `ngit.user_id` transaction-locally from authenticated server context. The app role must not own tables, be superuser, or have `BYPASSRLS`. Composite foreign keys prevent cross-user conversation/message, media/video and presentation/slide links. Indexes support owner-scoped recent lists, chronological messages, joins, provider lookup and audit timelines.
+Forced RLS is enabled for user-owned application data. Authenticated server code must set transaction-local `ngit.user_id` from trusted caller context; never derive it from client-provided identity. The application DB role must be non-owner, non-superuser, and without `BYPASSRLS`. Composite foreign keys preserve tenant ownership for conversation messages, media/video source links and presentation slides. Indexes support owner-scoped recent lists, chronological message retrieval, joins, enabled-provider lookup, and audit timelines.
 
-Apply migrations and execute disposable-database assertions per `services/api/db/README.md`; checked-in tests do not imply they ran.
+Apply `services/api/db/migrations/*.sql` in lexical order and run disposable-database assertions as documented in `services/api/db/tests/README.md`. Checked-in assertions are not evidence that migrations or tests have run.
