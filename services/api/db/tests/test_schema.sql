@@ -1,4 +1,5 @@
--- Disposable SQL checks; fixtures are rolled back.
+-- Disposable SQL checks; fixtures are rolled back. Run as a non-superuser
+-- application-role equivalent so FORCE ROW LEVEL SECURITY is effective.
 BEGIN;
 SET search_path TO ngit,public;
 DO $test$
