@@ -1,5 +1,6 @@
 """Conservative Personal Agent planner and approval-gated capability execution."""
 from __future__ import annotations
+
 import importlib
 import os
 import re
@@ -91,7 +92,7 @@ class ToolRegistry:
 
 
 class BrowserInterface:
-    """Adapter-based browser boundary; network I/O is injected explicitly."""
+    """Adapter-based browser boundary; navigation is approval-gated by the service."""
     def __init__(self, reader: Callable[[str], str] | None = None,
                  navigator: Callable[[str], Any] | None = None):
         self.reader = reader or (lambda url: f"Browser adapter unavailable for {urlparse(url).netloc}")
@@ -120,7 +121,7 @@ class BrowserInterface:
 
 
 class FilesystemInterface:
-    """Workspace-sandboxed UTF-8 text access with bounded writes."""
+    """Workspace-sandboxed UTF-8 text access and bounded writes."""
     MAX_BYTES = 1_000_000
 
     def __init__(self, root: str | Path):
@@ -140,16 +141,16 @@ class FilesystemInterface:
         try:
             if not path.is_file() or path.stat().st_size > self.MAX_BYTES:
                 raise AgentError("invalid_arguments", "File is missing or exceeds the read limit")
-            text = path.read_text(encoding="utf-8")
+            content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise AgentError("invalid_arguments", "Only UTF-8 text files can be read") from exc
-        return ToolResult(text, f"Read {path.relative_to(self.root)}", True)
+        return ToolResult(content, f"Read {path.relative_to(self.root)}", True)
 
     def write(self, args: Mapping[str, Any]) -> ToolResult:
         path = self.resolve(args.get("path"))
         content = args.get("content")
         if not isinstance(content, str) or len(content.encode("utf-8")) > self.MAX_BYTES:
-            raise AgentError("invalid_arguments", "Text content is required and must be at most 1 MB")
+            raise AgentError("invalid_arguments", "Text content is required and must be at most 1 MiB")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         verified = path.read_text(encoding="utf-8") == content
@@ -158,7 +159,7 @@ class FilesystemInterface:
 
 
 class ComputerControlInterface:
-    """No shell/OS access; actions go only through an injected adapter."""
+    """No shell/OS access; calls only an explicitly injected adapter."""
     ACTIONS = {"screenshot", "click", "type", "keypress"}
 
     def __init__(self, adapter: Callable[[str, Mapping[str, Any]], Any] | None = None):
@@ -175,7 +176,7 @@ class ComputerControlInterface:
 
 
 class AgentPlanner:
-    """Deterministic explicit single-step task planning; ambiguous goals fail closed."""
+    """Deterministic single-step planning; ambiguous goals fail closed."""
     def plan(self, owner_id: str, goal: str) -> AgentPlan:
         if not owner_id or not isinstance(goal, str) or not goal.strip() or len(goal) > 4000:
             raise AgentError("invalid_goal", "A non-empty goal of at most 4000 characters is required")
@@ -211,24 +212,26 @@ class AgentService:
 
     def submit(self, context: AuthContext, goal: str) -> TaskRecord:
         plan = self.planner.plan(context.user_id, goal)
-        record = TaskRecord(plan.task_id, context.user_id, plan.goal, "accepted", plan.created_at,
-                            self._now(), [{"tool_name": s.tool_name, "arguments": dict(s.arguments),
-                                           "description": s.description} for s in plan.steps])
+        record = TaskRecord(plan.task_id, context.user_id, plan.goal, "accepted", plan.created_at, self._now(),
+                            [{"tool_name": s.tool_name, "arguments": dict(s.arguments), "description": s.description}
+                             for s in plan.steps])
         with self._lock:
             self._records[record.task_id], self._plans[record.task_id] = record, plan
         return self.execute(context, record.task_id)
 
     def execute(self, context: AuthContext, task_id: str, approval_id: str | None = None) -> TaskRecord:
         with self._lock:
-            record, plan = self._owned(context, task_id), self._plans.get(task_id)
+            record = self._owned(context, task_id)
+            plan = self._plans.get(task_id)
             if plan is None:
                 raise AgentError("task_not_found", "Task was not found")
             if record.state in {"succeeded", "failed", "rejected"}:
                 return record
             if record.state == "running":
                 raise AgentError("task_running", "Task is already running")
+            start = 0
             if record.state == "awaiting_approval":
-                if approval_id is None:
+                if not approval_id:
                     return record
                 pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
                 if pending is None:
@@ -239,11 +242,10 @@ class AgentService:
                     record.state, record.error, record.updated_at = "failed", exc.code, self._now()
                     return record
                 record.observations = [o for o in record.observations if o.get("state") != "approval_required"]
-                record.state, record.pending_approval_id = "running", None
-                start = pending["step"]
+                record.pending_approval_id = None
+                record.state, start = "running", int(pending["step"])
             else:
                 record.state, record.updated_at = "running", self._now()
-                start = 0
         for index in range(start, len(plan.steps)):
             step = plan.steps[index]
             tool = self.tools.get(step.tool_name)
@@ -270,10 +272,9 @@ class AgentService:
                 with self._lock:
                     record.observations.append(observation)
                     if not result.verified:
-                        record.state, record.error = "failed", "verification_failed"
-                        record.updated_at = self._now()
+                        record.state, record.error, record.updated_at = "failed", "verification_failed", self._now()
                         return record
-                    record.result = result.value
+                    record.result, record.updated_at = result.value, self._now()
             except AgentError as exc:
                 with self._lock:
                     record.state, record.error, record.updated_at = "failed", exc.code, self._now()
@@ -316,8 +317,6 @@ def _load_adapter(spec: str) -> Callable[..., Any]:
     if not isinstance(spec, str) or ":" not in spec:
         raise ValueError("adapter must use module:callable syntax")
     module, attribute = spec.split(":", 1)
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", module) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", attribute):
-        raise ValueError("invalid adapter path")
     candidate = getattr(importlib.import_module(module), attribute)
     if not callable(candidate):
         raise ValueError("configured adapter is not callable")
@@ -327,20 +326,18 @@ def _load_adapter(spec: str) -> Callable[..., Any]:
 def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager, workspace: str | Path,
                 browser: BrowserInterface | None = None,
                 computer: ComputerControlInterface | None = None) -> AgentService:
-    if browser is None:
-        reader, navigator = os.getenv("NGIT_AGENT_BROWSER_READER"), os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR")
-        browser = BrowserInterface(_load_adapter(reader) if reader else None,
-                                   _load_adapter(navigator) if navigator else None)
-    if computer is None:
-        spec = os.getenv("NGIT_AGENT_COMPUTER_ADAPTER")
-        computer = ComputerControlInterface(_load_adapter(spec) if spec else None)
+    browser = browser or BrowserInterface(
+        _load_adapter(os.environ["NGIT_AGENT_BROWSER_READER"]) if os.getenv("NGIT_AGENT_BROWSER_READER") else None,
+        _load_adapter(os.environ["NGIT_AGENT_BROWSER_NAVIGATOR"]) if os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR") else None)
+    computer = computer or ComputerControlInterface(
+        _load_adapter(os.environ["NGIT_AGENT_COMPUTER_ADAPTER"]) if os.getenv("NGIT_AGENT_COMPUTER_ADAPTER") else None)
     fs = FilesystemInterface(workspace)
     for definition in (
         ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect),
         ToolDefinition("browser.navigate", "Approval-gated HTTP(S) navigation", True, browser.navigate),
-        ToolDefinition("filesystem.read", "Read UTF-8 text from agent workspace", False, fs.read),
+        ToolDefinition("filesystem.read", "Read UTF-8 text in agent workspace", False, fs.read),
         ToolDefinition("filesystem.write", "Approval-gated workspace text write", True, fs.write),
-        ToolDefinition("computer.perform", "Approval-gated action through configured computer adapter", True, computer.perform),
+        ToolDefinition("computer.perform", "Approval-gated injected computer action", True, computer.perform),
     ):
         tools.register(definition)
     return AgentService(tools, permissions)
@@ -348,9 +345,9 @@ def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager, works
 
 def public_record(record: TaskRecord) -> dict[str, Any]:
     return {"task_id": record.task_id, "goal": record.goal, "state": record.state,
-            "created_at": record.created_at, "updated_at": record.updated_at,
-            "plan": record.plan, "observations": record.observations, "result": record.result,
-            "error": record.error, "pending_approval_id": record.pending_approval_id}
+            "created_at": record.created_at, "updated_at": record.updated_at, "plan": record.plan,
+            "observations": record.observations, "result": record.result, "error": record.error,
+            "pending_approval_id": record.pending_approval_id}
 
 
 __all__ = ["AgentError", "AgentPlan", "AgentPlanner", "AgentService", "BrowserInterface",

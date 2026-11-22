@@ -44,17 +44,8 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
 
     @router.post("/tasks/{task_id}/approve")
     def approve(task_id: str, body: ApprovalInput, context: AuthContext = Depends(current_user)):
-        return public_record(invoke(agent.execute, context, task_id, body.approval_id))
-
-    @router.post("/tasks/{task_id}/reject")
-    def reject(task_id: str, context: AuthContext = Depends(current_user)):
-        return public_record(invoke(agent.reject, context, task_id))
-
-    @router.post("/approvals", status_code=201)
-    def request_approval(task_id: str = Query(..., min_length=1, max_length=128),
-                         context: AuthContext = Depends(current_user)):
         if approvals is None:
-            raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow is unavailable"})
+            raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
         record = invoke(agent.get, context, task_id)
         pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
         if record.state != "awaiting_approval" or pending is None:
@@ -67,8 +58,16 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
         return {"task_id": task_id, "approval_id": grant.approval_id, "action": pending["action"],
                 "resource_id": pending["resource_id"], "status": grant.status}
 
+    @router.post("/tasks/{task_id}/resume")
+    def resume(task_id: str, body: ApprovalInput, context: AuthContext = Depends(current_user)):
+        return public_record(invoke(agent.execute, context, task_id, body.approval_id))
+
+    @router.post("/tasks/{task_id}/reject")
+    def reject(task_id: str, context: AuthContext = Depends(current_user)):
+        return public_record(invoke(agent.reject, context, task_id))
+
     return router
 
 
 create_router = create_agent_router
-__all__ = ["create_router", "create_agent_router"]
+__all__ = ["create_agent_router", "create_router"]
