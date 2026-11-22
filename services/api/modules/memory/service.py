@@ -21,7 +21,7 @@ def _uid(value: str) -> str:
 
 
 class MemoryService:
-    """Conversations and memories always use authenticated owner scope."""
+    """Conversation and memory operations always use authenticated owner scope."""
 
     def __init__(self, database: Database):
         self.database = database
@@ -64,11 +64,11 @@ class MemoryService:
         keys = ("id", "user_id", "conversation_id", "role", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
             row = conn.execute(
-                "INSERT INTO messages(user_id,conversation_id,role,content,metadata) "
-                "SELECT %s,id,%s,%s,%s::jsonb FROM conversations "
+                "INSERT INTO messages(user_id,conversation_id,role,content) "
+                "SELECT %s,id,%s,%s FROM conversations "
                 "WHERE id=%s AND user_id=%s AND status='active' "
-                "RETURNING id,user_id,conversation_id,role,content,metadata,created_at",
-                (owner, role, content, json.dumps(dict(metadata or {}), separators=(",", ":")), conversation, owner),
+                "RETURNING id,user_id,conversation_id,role,content,'{}'::jsonb AS metadata,created_at",
+                (owner, role, content, conversation, owner),
             ).fetchone()
             if row is None:
                 raise LookupError("conversation not found")
@@ -82,7 +82,7 @@ class MemoryService:
         keys = ("id", "user_id", "conversation_id", "role", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
             rows = conn.execute(
-                "SELECT m.id,m.user_id,m.conversation_id,m.role,m.content,m.metadata,m.created_at "
+                "SELECT m.id,m.user_id,m.conversation_id,m.role,m.content,'{}'::jsonb AS metadata,m.created_at "
                 "FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.user_id=m.user_id "
                 "WHERE m.user_id=%s AND m.conversation_id=%s AND c.user_id=%s "
                 "ORDER BY m.created_at,m.id LIMIT %s", (owner, conversation, owner, limit)
@@ -97,22 +97,24 @@ class MemoryService:
             raise ValueError("unsupported memory type")
         if not isinstance(content, str) or not content.strip() or len(content) > 20_000:
             raise ValueError("memory content must contain 1 to 20000 characters")
-        meta = json.dumps(dict(metadata or {}), separators=(",", ":"))
-        keys = ("id", "user_id", "conversation_id", "kind", "content", "metadata", "created_at")
+        meta = dict(metadata or {})
+        if not all(isinstance(key, str) for key in meta):
+            raise ValueError("metadata keys must be strings")
+        keys = ("id", "user_id", "kind", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
             if conversation_id is None:
                 row = conn.execute(
                     "INSERT INTO memories(user_id,kind,content,metadata) VALUES (%s,%s,%s,%s::jsonb) "
-                    "RETURNING id,user_id,NULL::uuid,kind,content,metadata,created_at",
-                    (owner, memory_type, content.strip(), meta),
+                    "RETURNING id,user_id,kind,content,metadata,created_at",
+                    (owner, memory_type, content.strip(), json.dumps(meta, separators=(",", ":"))),
                 ).fetchone()
             else:
                 conversation = _uid(conversation_id)
                 row = conn.execute(
                     "INSERT INTO memories(user_id,kind,content,metadata) "
                     "SELECT %s,%s,%s,%s::jsonb FROM conversations WHERE id=%s AND user_id=%s "
-                    "RETURNING id,user_id,NULL::uuid,kind,content,metadata,created_at",
-                    (owner, memory_type, content.strip(), meta, conversation, owner),
+                    "RETURNING id,user_id,kind,content,metadata,created_at",
+                    (owner, memory_type, content.strip(), json.dumps(meta, separators=(",", ":")), conversation, owner),
                 ).fetchone()
                 if row is None:
                     raise LookupError("conversation not found")
@@ -127,14 +129,20 @@ class MemoryService:
         keys = ("id", "user_id", "kind", "content", "metadata", "created_at")
         with self.database.connection(owner) as conn:
             if memory_type is None:
-                rows = conn.execute("SELECT id,user_id,kind,content,metadata,created_at FROM memories WHERE user_id=%s ORDER BY created_at DESC,id LIMIT %s", (owner, limit)).fetchall()
+                rows = conn.execute(
+                    "SELECT id,user_id,kind,content,metadata,created_at FROM memories "
+                    "WHERE user_id=%s ORDER BY created_at DESC,id LIMIT %s", (owner, limit)
+                ).fetchall()
             else:
-                rows = conn.execute("SELECT id,user_id,kind,content,metadata,created_at FROM memories WHERE user_id=%s AND kind=%s ORDER BY created_at DESC,id LIMIT %s", (owner, memory_type, limit)).fetchall()
+                rows = conn.execute(
+                    "SELECT id,user_id,kind,content,metadata,created_at FROM memories "
+                    "WHERE user_id=%s AND kind=%s ORDER BY created_at DESC,id LIMIT %s", (owner, memory_type, limit)
+                ).fetchall()
         return [self._dict(row, keys) for row in rows]
 
 
 class RetrievalService:
-    """Lexical search with optional, owner-filtered vector candidates."""
+    """Lexical retrieval with optional vector candidate reranking."""
 
     def __init__(self, memory: MemoryService, vector_search: Any | None = None):
         self.memory, self.vector_search = memory, vector_search
@@ -156,7 +164,10 @@ class RetrievalService:
         for doc in docs:
             overlap = terms & self._terms(str(doc["content"]))
             if overlap:
-                ranked[str(doc["id"])] = {**doc, "score": len(overlap) / math.sqrt(max(1, len(terms)) * max(1, len(self._terms(str(doc["content"]))))), "source": "memory"}
+                ranked[str(doc["id"])] = {
+                    **doc, "score": len(overlap) / math.sqrt(max(1, len(terms)) * max(1, len(self._terms(str(doc["content"]))))),
+                    "source": "memory",
+                }
         if self.vector_search is None:
             return sorted(ranked.values(), key=lambda item: (-item["score"], str(item["id"])))[:limit]
         hits = self.vector_search.search(user_id=owner, query=query, limit=limit, memory_type=memory_type)
@@ -164,7 +175,7 @@ class RetrievalService:
         for hit in hits:
             identifier = str(hit.get("id", ""))
             doc = corpus.get(identifier)
-            if doc is None:
+            if doc is None or str(hit.get("user_id", "")) != owner:
                 continue
             try:
                 score = float(hit.get("score", 0))
@@ -178,7 +189,7 @@ class RetrievalService:
 
 
 class KnowledgeService:
-    """Ingest caller-provided text; source verification never performs network I/O."""
+    """Ingest caller-provided text; source verification performs no network I/O."""
 
     def __init__(self, memory: MemoryService):
         self.memory = memory
@@ -204,27 +215,33 @@ class KnowledgeService:
             part = normalized[start:end].strip()
             if part:
                 chunks.append(part)
-            if end == len(normalized):
+            if end >= len(normalized):
                 break
             start = max(start + 1, end - overlap)
-        return [self.memory.save_memory(user_id, chunk, "summary", conversation_id,
-                 {"source": source.strip(), "chunk_index": index, "verified_source": True})
-                for index, chunk in enumerate(chunks)]
+        return [
+            self.memory.save_memory(user_id, chunk, "summary", conversation_id,
+                                    {"source": source.strip(), "chunk_index": index, "verified_source": True})
+            for index, chunk in enumerate(chunks)
+        ]
 
     @staticmethod
     def verify_source(source: str, allowlist: Sequence[str]) -> bool:
+        """Require exact identifier or exact URL origin; never fetch the source."""
         if not isinstance(source, str) or not source or not allowlist:
             return False
         try:
             candidate = urlparse(source)
-            port = candidate.port
         except (ValueError, TypeError):
             return False
         if candidate.scheme not in {"http", "https"} or not candidate.hostname or candidate.username or candidate.password or candidate.fragment:
             return False
-        candidate_port = port or (443 if candidate.scheme == "https" else 80)
+        try:
+            port = candidate.port
+        except ValueError:
+            return False
+        effective_port = port or (443 if candidate.scheme == "https" else 80)
         for item in allowlist:
-            if not isinstance(item, str):
+            if not isinstance(item, str) or not item:
                 continue
             try:
                 allowed = urlparse(item)
@@ -232,13 +249,13 @@ class KnowledgeService:
             except (ValueError, TypeError):
                 continue
             if allowed.scheme in {"http", "https"} and allowed.hostname and not allowed.username and not allowed.password and not allowed.path.strip("/") and not allowed.query and not allowed.fragment:
-                effective_port = allowed_port or (443 if allowed.scheme == "https" else 80)
-                if candidate.scheme == allowed.scheme and candidate.hostname.casefold() == allowed.hostname.casefold() and candidate_port == effective_port:
+                if candidate.scheme == allowed.scheme and candidate.hostname.casefold() == allowed.hostname.casefold() and effective_port == (allowed_port or (443 if allowed.scheme == "https" else 80)):
                     return True
+            elif source == item:
+                return True
         return False
 
-    def ingest_verified(self, user_id: str, source: str, text: str,
-                        allowlist: Sequence[str], **kwargs: Any) -> list[dict[str, Any]]:
+    def ingest_verified(self, user_id: str, source: str, text: str, allowlist: Sequence[str], **kwargs: Any) -> list[dict[str, Any]]:
         if not self.verify_source(source, allowlist):
             raise PermissionError("source is not verified")
         return self.ingest_text(user_id, text, source, **kwargs)
