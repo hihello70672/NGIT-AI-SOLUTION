@@ -55,6 +55,10 @@ class PolicyApprovalTests(unittest.TestCase):
         self.assertFalse(self.approvals.consume(grant.approval_id, actor_user_id="alice", action="doc.write", resource_id="doc-2"))
         self.assertTrue(self.approvals.consume(grant.approval_id, actor_user_id="alice", action="doc.write", resource_id="doc-1"))
         self.assertFalse(self.approvals.consume(grant.approval_id, actor_user_id="alice", action="doc.write", resource_id="doc-1"))
+        expiring = self.approvals.request("alice", "doc.write", "doc-3", ttl_seconds=1)
+        self.approvals.decide(expiring.approval_id, "reviewer", approved=True)
+        self.clock.now += 1
+        self.assertFalse(self.approvals.consume(expiring.approval_id, actor_user_id="alice", action="doc.write", resource_id="doc-3"))
 
     def test_stop_switch_and_approval_are_fail_closed(self):
         grant = self.approvals.request("alice", "doc.write", "doc-1")
@@ -76,14 +80,26 @@ class PolicyApprovalTests(unittest.TestCase):
 
 
 class AuditAndSecretsTests(unittest.TestCase):
-    def test_audit_redaction_immutability_and_secret_name_validation(self):
+    def test_audit_redaction_and_immutable_event_snapshots(self):
         audit = AuditLogger()
         event = audit.record(action="test", details={"access_token": "never", "nested": {"api-key": "no", "safe": "yes"}})
         self.assertNotIn("never", repr(event))
+        self.assertNotIn('"no"', repr(event))
         event["details"]["nested"]["safe"] = "tampered"
+        snapshot = audit.events()
+        with self.assertRaises(TypeError):
+            snapshot[0]["details"]["nested"]["safe"] = "also tampered"
         self.assertEqual(audit.events()[0]["details"]["nested"]["safe"], "yes")
-        self.assertEqual(SecretStore({"VALID_SECRET_2": "example-only"}).get("VALID_SECRET_2"), "example-only")
-        with self.assertRaises(ValueError): SecretStore().get("bad-name")
+        audit.record(action="opaque", details={"label": "Bearer abcd-token-value"})
+        self.assertNotIn("abcd-token-value", repr(audit.events()))
+
+    def test_secret_name_validation_and_safe_error_payload(self):
+        store = SecretStore({"VALID_SECRET_2": "example-only"})
+        self.assertEqual(store.get("VALID_SECRET_2"), "example-only")
+        with self.assertRaises(ValueError): store.get("bad-name")
+        payload = error_payload(SecurityError("forbidden", "Denied"), "req")
+        self.assertEqual(payload["error"]["request_id"], "req")
+        self.assertEqual(payload["error"]["details"], {})
 
 
 if __name__ == "__main__": unittest.main()
