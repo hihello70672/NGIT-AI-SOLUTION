@@ -4,7 +4,7 @@ Status is based on committed files in the reviewed `main` tree. Checked-in tests
 
 ## Phase 1 — Foundation, architecture, database and local environment
 
-**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Local PostgreSQL Compose configuration and root `.env.example` are present. Four ordered migrations (`0001`–`0004`) create the isolated `ngit` schema, users, roles, user-scoped conversations/messages and memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes and RLS policies. Reference seed data and SQL integration checks are present.
+**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Local PostgreSQL Compose configuration and root `.env.example` are present. Five ordered migrations (`0001`–`0005`) create the isolated `ngit` schema, users, roles, user-scoped conversations/messages and memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes, RLS policies and a tenant-safe video/source-asset constraint. Reference seed data and SQL integration checks are present.
 
 **Remaining validation:** Apply migrations on a fresh PostgreSQL 16+ instance; validate constraints, indexes and seeds; execute isolation checks using a provisioned application role that is neither a superuser nor table owner; verify migration and application grants/ownership; validate Compose/local startup.
 
@@ -20,7 +20,7 @@ Status is based on committed files in the reviewed `main` tree. Checked-in tests
 
 ## Phase 3 — Brain, model runtime, memory and knowledge
 
-**Built and committed:** Brain has deterministic intent classification, bounded generation and local/self-hosted runtime routing. Memory exposes authenticated owner-scoped conversations/messages, typed memories, lexical retrieval, optional owner-scoped vector candidate reranking, provenance-aware chunked knowledge ingestion and URL-origin allowlisting without remote fetch. Vector embeddings/indexing are optional adapters; schema persists no embedding column or vector extension. External AI APIs remain optional.
+**Built and committed:** Brain has deterministic intent classification, bounded generation and local/self-hosted runtime routing. Memory exposes authenticated owner-scoped conversations/messages, typed memories, lexical retrieval, optional owner-scoped vector candidate reranking, provenance-aware chunked knowledge ingestion and URL-origin allowlisting without remote fetch. Vector embeddings/indexing are optional adapters; schema persists no embedding column/vector extension. External AI APIs remain optional.
 
 **Remaining/caveats:** Tests/database checks not run; vector loader must honor owner scope and embeddings are not persisted. Allowlisting validates origin, not content. Brain caller authorization and process-local state retain documented caveats.
 
@@ -38,6 +38,6 @@ No tests or runtime checks are claimed as executed for this update, including Py
 
 ## Next work
 
-Execute the documented API/web suites and resolve failures. Complete PostgreSQL migration/RLS checks with a provisioned non-owner role; validate grants, lifecycle, durable shared state and production startup. Review workspace deployment isolation and browser SSRF controls before multi-worker or untrusted deployment. Preserve distinct-reviewer approval for sensitive actions.
+Execute the documented API/web suites and resolve failures. Complete PostgreSQL migration/RLS checks with a non-owner role; validate grants, lifecycle, durable shared state and production startup. Review workspace deployment isolation and browser SSRF controls before multi-worker or untrusted deployment. Preserve distinct-reviewer approval for sensitive actions.
 
 Agent suite command from repository root: `PYTHONPATH=. python -m pytest services/api/tests` with documented dependencies installed. No test result is implied.
