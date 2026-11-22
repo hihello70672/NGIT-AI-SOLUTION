@@ -70,7 +70,7 @@ class ToolRegistry:
         return [{"name": t.name, "description": t.description, "sensitive": t.sensitive} for t in sorted(self._tools.values(), key=lambda x: x.name)]
 
 class BrowserInterface:
-    """Adapter-based browser boundary; navigation is approval-gated by the service."""
+    """Injected browser boundary. Network security must be enforced by the adapter."""
     def __init__(self, reader: Callable[[str], str] | None = None, navigator: Callable[[str], Any] | None = None):
         self.reader = reader or (lambda url: f"Browser adapter unavailable for {urlparse(url).netloc}")
         self.navigator = navigator
@@ -90,7 +90,7 @@ class BrowserInterface:
         return ToolResult(self.navigator(url), "Browser navigation completed", True)
 
 class FilesystemInterface:
-    """Workspace-bounded UTF-8 text access with bounded writes."""
+    """Workspace-bound UTF-8 text access; not an OS sandbox."""
     MAX_BYTES = 1_000_000
     def __init__(self, root: str | Path):
         self.root = Path(root).expanduser().resolve(); self.root.mkdir(parents=True, exist_ok=True)
@@ -114,7 +114,7 @@ class FilesystemInterface:
         return ToolResult({"path": str(path.relative_to(self.root)), "bytes": len(content.encode("utf-8"))}, "File write verified" if verified else "File write verification failed", verified)
 
 class ComputerControlInterface:
-    """No shell/OS access; calls only an explicitly injected adapter."""
+    """No shell/OS access; delegates a bounded action to an injected adapter."""
     ACTIONS = {"screenshot", "click", "type", "keypress"}
     def __init__(self, adapter: Callable[[str, Mapping[str, Any]], Any] | None = None): self.adapter = adapter
     def perform(self, args: Mapping[str, Any]) -> ToolResult:
@@ -124,13 +124,14 @@ class ComputerControlInterface:
         return ToolResult(self.adapter(action, args), f"Computer action {action} completed", True)
 
 class AgentPlanner:
-    """Deterministic single-step planning; ambiguity is rejected closed."""
+    """Deterministic single-step planning; ambiguous goals fail closed."""
     def plan(self, owner_id: str, goal: str) -> AgentPlan:
         if not owner_id or not isinstance(goal, str) or not goal.strip() or len(goal) > 4000: raise AgentError("invalid_goal", "A non-empty goal of at most 4000 characters is required")
-        text = goal.strip(); match = re.fullmatch(r"(?:read|show)\s+(?:file\s+)?(.+)", text, re.I)
+        text = goal.strip()
+        match = re.fullmatch(r"(?:read|show)\s+(?:file\s+)?(.+)", text, re.I)
         if match: step = PlannedStep("filesystem.read", {"path": match.group(1).strip()}, "Read a workspace file")
         else:
-            match = re.fullmatch(r"(?:write|create)(?:\s+file)?\s+([^\n]+?)\s+with\s+content:\s*([\s\S]+)", text, re.I)
+            match = re.fullmatch(r"(?:write|create)(?:\s+file)?\s+(.+?)\s+with\s+content:\s*([\s\S]+)", text, re.I)
             if match: step = PlannedStep("filesystem.write", {"path": match.group(1).strip(), "content": match.group(2)}, "Write a workspace file")
             else:
                 match = re.fullmatch(r"(?:inspect|open)\s+(https?://\S+)", text, re.I)
@@ -147,7 +148,7 @@ class AgentService:
     def submit(self, context: AuthContext, goal: str) -> TaskRecord:
         plan = self.planner.plan(context.user_id, goal)
         record = TaskRecord(plan.task_id, context.user_id, plan.goal, "accepted", plan.created_at, self._now(), [{"tool_name": s.tool_name, "arguments": dict(s.arguments), "description": s.description} for s in plan.steps])
-        with self._lock: self._records[record.task_id], self._plans[record.task_id] = record, plan
+        with self._lock: self._records[record.task_id] = record; self._plans[record.task_id] = plan
         return self.execute(context, record.task_id)
     def execute(self, context: AuthContext, task_id: str, approval_id: str | None = None) -> TaskRecord:
         with self._lock:
@@ -159,12 +160,14 @@ class AgentService:
             if record.state == "awaiting_approval":
                 pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
                 if not approval_id or pending is None: return record
+                if record.pending_approval_id and approval_id != record.pending_approval_id:
+                    record.state, record.error, record.updated_at = "failed", "approval_scope_mismatch", self._now(); return record
                 try: self.permissions.authorize(context, pending["action"], pending["resource_id"], approval_id=approval_id)
                 except SecurityError as exc:
                     record.state, record.error, record.updated_at = "failed", exc.code, self._now(); return record
                 record.observations = [o for o in record.observations if o.get("state") != "approval_required"]
-                record.pending_approval_id = None; record.state = "running"; start = pending["step"]
-            else: record.state, record.updated_at = "running", self._now()
+                record.pending_approval_id = None; start = pending["step"]
+            record.state, record.updated_at = "running", self._now()
         for index in range(start, len(plan.steps)):
             step = plan.steps[index]; tool = self.tools.get(step.tool_name)
             action, resource = f"agent.tool.{tool.name}", f"{task_id}:{index}"
@@ -184,7 +187,8 @@ class AgentService:
                 observation = {"step": index, "tool_name": tool.name, "observation": result.observation, "verified": result.verified, "value": result.value}
                 with self._lock:
                     record.observations.append(observation)
-                    if not result.verified: record.state, record.error, record.updated_at = "failed", "verification_failed", self._now(); return record
+                    if not result.verified:
+                        record.state, record.error, record.updated_at = "failed", "verification_failed", self._now(); return record
                     record.result, record.updated_at = result.value, self._now()
             except AgentError as exc:
                 with self._lock: record.state, record.error, record.updated_at = "failed", exc.code, self._now()
@@ -205,7 +209,7 @@ class AgentService:
     def get(self, context: AuthContext, task_id: str) -> TaskRecord:
         with self._lock: return self._owned(context, task_id)
     def history(self, context: AuthContext, limit: int = 50) -> list[TaskRecord]:
-        if not 1 <= limit <= 100: raise AgentError("invalid_limit", "Limit must be between 1 and 100")
+        if isinstance(limit, bool) or not 1 <= limit <= 100: raise AgentError("invalid_limit", "Limit must be between 1 and 100")
         with self._lock: return sorted((r for r in self._records.values() if r.owner_id == context.user_id), key=lambda r: r.created_at, reverse=True)[:limit]
 
 def _load_adapter(spec: str) -> Callable[..., Any]:
@@ -214,18 +218,15 @@ def _load_adapter(spec: str) -> Callable[..., Any]:
     if not callable(candidate): raise ValueError("configured adapter is not callable")
     return candidate
 
-def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager, workspace: str | Path,
-                browser: BrowserInterface | None = None, computer: ComputerControlInterface | None = None) -> AgentService:
-    browser = browser or BrowserInterface(_load_adapter(os.environ["NGIT_AGENT_BROWSER_READER"]) if os.getenv("NGIT_AGENT_BROWSER_READER") else None,
-        _load_adapter(os.environ["NGIT_AGENT_BROWSER_NAVIGATOR"]) if os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR") else None)
+def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager, workspace: str | Path, browser: BrowserInterface | None = None, computer: ComputerControlInterface | None = None) -> AgentService:
+    browser = browser or BrowserInterface(_load_adapter(os.environ["NGIT_AGENT_BROWSER_READER"]) if os.getenv("NGIT_AGENT_BROWSER_READER") else None, _load_adapter(os.environ["NGIT_AGENT_BROWSER_NAVIGATOR"]) if os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR") else None)
     computer = computer or ComputerControlInterface(_load_adapter(os.environ["NGIT_AGENT_COMPUTER_ADAPTER"]) if os.getenv("NGIT_AGENT_COMPUTER_ADAPTER") else None)
     fs = FilesystemInterface(workspace)
-    for definition in (ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect), ToolDefinition("browser.navigate", "Approval-gated HTTP(S) navigation", True, browser.navigate), ToolDefinition("filesystem.read", "Read UTF-8 text in agent workspace", False, fs.read), ToolDefinition("filesystem.write", "Approval-gated workspace text write", True, fs.write), ToolDefinition("computer.perform", "Approval-gated injected computer action", True, computer.perform)):
+    for definition in (ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect), ToolDefinition("browser.navigate", "Approval-gated HTTP(S) navigation", True, browser.navigate), ToolDefinition("filesystem.read", "Read UTF-8 text from the agent workspace", False, fs.read), ToolDefinition("filesystem.write", "Approval-gated workspace text write", True, fs.write), ToolDefinition("computer.perform", "Approval-gated injected computer action", True, computer.perform)):
         tools.register(definition)
     return AgentService(tools, permissions)
 
 def public_record(record: TaskRecord) -> dict[str, Any]:
-    return {"task_id": record.task_id, "goal": record.goal, "state": record.state, "created_at": record.created_at, "updated_at": record.updated_at,
-        "plan": record.plan, "observations": record.observations, "result": record.result, "error": record.error, "pending_approval_id": record.pending_approval_id}
+    return {"task_id": record.task_id, "goal": record.goal, "state": record.state, "created_at": record.created_at, "updated_at": record.updated_at, "plan": record.plan, "observations": record.observations, "result": record.result, "error": record.error, "pending_approval_id": record.pending_approval_id}
 
 __all__ = ["AgentError", "AgentPlan", "AgentPlanner", "AgentService", "BrowserInterface", "ComputerControlInterface", "FilesystemInterface", "PlannedStep", "TaskRecord", "ToolDefinition", "ToolRegistry", "ToolResult", "build_agent", "public_record"]
