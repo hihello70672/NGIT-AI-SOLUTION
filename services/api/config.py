@@ -35,9 +35,7 @@ class Settings:
         return cls(url, prefix, origins, schema)
 
     def validate_security_configuration(self) -> None:
-        token_pepper = os.getenv("AUTH_TOKEN_PEPPER", "")
-        password_pepper = os.getenv("PASSWORD_PEPPER", "")
-        if len(token_pepper.encode()) < 32:
+        if len(os.getenv("AUTH_TOKEN_PEPPER", "").encode()) < 32:
             raise ValueError("AUTH_TOKEN_PEPPER must contain at least 32 bytes")
-        if len(password_pepper.encode()) < 16:
+        if len(os.getenv("PASSWORD_PEPPER", "").encode()) < 16:
             raise ValueError("PASSWORD_PEPPER must contain at least 16 bytes")
