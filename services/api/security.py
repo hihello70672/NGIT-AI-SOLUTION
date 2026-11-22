@@ -7,12 +7,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import os
 import secrets
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
@@ -41,11 +40,7 @@ class Policy:
 
 
 class SecretStore:
-    """Small secret-provider interface backed by environment configuration.
-
-    Secret values are retrieved by name and never returned in repr or logs.
-    A deployment-specific vault adapter can implement the same get contract.
-    """
+    """Environment-backed secret provider; replaceable with a vault adapter."""
     def __init__(self, environ: Mapping[str, str] | None = None):
         self._environ = os.environ if environ is None else environ
 
@@ -58,7 +53,7 @@ class SecretStore:
 class Authenticator:
     """Opaque bearer token issue/validation and revocation."""
     def __init__(self, pepper: str | None = None, *, clock: Callable[[], float] = time.time):
-        self._pepper = (pepper if pepper is not None else SecretStore().get("AUTH_TOKEN_PEPPER"))
+        self._pepper = pepper if pepper is not None else SecretStore().get("AUTH_TOKEN_PEPPER")
         if not self._pepper:
             raise ValueError("AUTH_TOKEN_PEPPER must be configured")
         if len(self._pepper.encode()) < 32:
@@ -74,8 +69,7 @@ class Authenticator:
         if not user_id or ttl_seconds < 1 or ttl_seconds > 86400:
             raise ValueError("invalid token issue parameters")
         token = secrets.token_urlsafe(32)
-        token_id = secrets.token_urlsafe(12)
-        context = AuthContext(user_id=user_id, roles=frozenset(roles), token_id=token_id)
+        context = AuthContext(user_id, frozenset(roles), secrets.token_urlsafe(12))
         with self._lock:
             self._tokens[self._digest(token)] = (context, self._clock() + ttl_seconds)
         return token
@@ -97,7 +91,7 @@ class Authenticator:
 
 
 class AuditLogger:
-    """Thread-safe structured audit sink; rejects sensitive fields by name."""
+    """Thread-safe structured audit sink with conservative sensitive-key filtering."""
     _forbidden = {"password", "token", "secret", "credential", "prompt", "authorization"}
 
     def __init__(self):
@@ -109,16 +103,18 @@ class AuditLogger:
         if isinstance(value, Mapping):
             result = {}
             for key, item in value.items():
-                key_text = str(key).lower()
-                if any(word in key_text for word in cls._forbidden):
+                text = str(key).lower()
+                if any(word in text for word in cls._forbidden):
                     continue
                 result[str(key)] = cls._safe(item)
             return result
         if isinstance(value, (list, tuple)):
             return [cls._safe(item) for item in value]
-        if value is None or isinstance(value, (bool, int, float, str)):
-            return value if not isinstance(value, str) or len(value) <= 512 else value[:512]
-        return str(type(value).__name__)
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            return value[:512]
+        return type(value).__name__
 
     def record(self, *, action: str, actor_user_id: str | None = None,
                resource_type: str | None = None, resource_id: str | None = None,
@@ -175,8 +171,7 @@ class Approval:
 class ApprovalEngine:
     """One-time, expiring, distinct-approver authorization grants."""
     def __init__(self, *, clock: Callable[[], float] = time.time):
-        self._clock = clock
-        self._lock = threading.RLock()
+        self._clock, self._lock = clock, threading.RLock()
         self._approvals: dict[str, Approval] = {}
 
     def request(self, actor_user_id: str, action: str, resource_id: str, *, ttl_seconds: int = 600) -> Approval:
@@ -213,10 +208,8 @@ class ApprovalEngine:
 class EmergencyStop:
     """Fail-closed process-wide switch for restricted operations."""
     def __init__(self, audit: AuditLogger):
-        self._audit = audit
-        self._lock = threading.Lock()
+        self._audit, self._lock = audit, threading.Lock()
         self._stopped = False
-        self._reason: str | None = None
 
     @property
     def stopped(self) -> bool:
@@ -227,15 +220,15 @@ class EmergencyStop:
         if not actor_user_id or not reason or len(reason) > 256:
             raise ValueError("actor and bounded reason are required")
         with self._lock:
-            self._stopped, self._reason = True, reason
+            self._stopped = True
         self._audit.record(action="emergency_stop.engaged", actor_user_id=actor_user_id,
-                           outcome="success", details={"reason": reason})
+                           details={"reason": reason})
 
     def reset(self, actor_user_id: str) -> None:
         if not actor_user_id:
             raise ValueError("actor is required")
         with self._lock:
-            self._stopped, self._reason = False, None
+            self._stopped = False
         self._audit.record(action="emergency_stop.reset", actor_user_id=actor_user_id)
 
     def check(self) -> None:
@@ -244,9 +237,9 @@ class EmergencyStop:
 
 
 class RestrictedActionManager:
-    """Enforces RBAC, emergency stop and policy-required approvals together."""
-    def __init__(self, policies: PolicyEngine, approvals: ApprovalEngine, stop: EmergencyStop,
-                 audit: AuditLogger):
+    """Combines RBAC, emergency stop and policy-required approvals."""
+    def __init__(self, policies: PolicyEngine, approvals: ApprovalEngine,
+                 stop: EmergencyStop, audit: AuditLogger):
         self._policies, self._approvals, self._stop, self._audit = policies, approvals, stop, audit
 
     def authorize(self, context: AuthContext, action: str, resource_id: str, *,
@@ -271,15 +264,13 @@ def create_default_security() -> tuple[Authenticator, PolicyEngine, ApprovalEngi
     audit = AuditLogger()
     policies = PolicyEngine()
     policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), restricted=True, approval_required=True))
-    approvals = ApprovalEngine()
-    stop = EmergencyStop(audit)
+    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
+    approvals, stop = ApprovalEngine(), EmergencyStop(audit)
     actions = RestrictedActionManager(policies, approvals, stop, audit)
     return Authenticator(), policies, approvals, audit, stop, actions
 
 
 def error_payload(error: SecurityError, request_id: str | None = None) -> dict[str, Any]:
-    """Shared API error envelope; never includes internals or credentials."""
     return {"error": {"code": error.code, "message": error.message,
                       "request_id": request_id, "details": {}}}
 
