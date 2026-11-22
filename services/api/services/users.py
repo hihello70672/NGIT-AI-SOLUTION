@@ -1,7 +1,6 @@
 """Identity and user-management persistence operations."""
 from typing import Any
 
-
 class UserService:
     def __init__(self, database: Any) -> None:
         self.database = database
@@ -47,8 +46,8 @@ class UserService:
             if row is None:
                 return None
             user = self._mapping(row, ("id", "email", "display_name", "status", "created_at"))
-            roles = conn.execute("SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=%s ORDER BY r.name", (user_id,)).fetchall()
-            user["roles"] = [r["name"] if isinstance(r, dict) else r[0] for r in roles]
+            rows = conn.execute("SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id=r.id WHERE ur.user_id=%s ORDER BY r.name", (user_id,)).fetchall()
+            user["roles"] = [r["name"] if isinstance(r, dict) else r[0] for r in rows]
             return user
 
     def list_users(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
@@ -60,6 +59,5 @@ class UserService:
                 FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id
                 GROUP BY u.id ORDER BY u.created_at DESC,u.id LIMIT %s OFFSET %s""", (limit, offset)).fetchall()
         return [self._mapping(row, ("id", "email", "display_name", "status", "created_at", "roles")) for row in rows]
-
 
 __all__ = ["UserService"]
