@@ -1,6 +1,5 @@
 SET search_path TO ngit,public;
--- User-role grants are tenant-owned; the role catalog remains shared and read-only to end users.
-ALTER TABLE user_roles ADD COLUMN tenant_user_id uuid GENERATED ALWAYS AS (user_id) STORED;
+-- Grants are keyed by user_id directly; no redundant tenant column is needed.
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_roles FORCE ROW LEVEL SECURITY;
 CREATE POLICY user_role_isolation ON user_roles USING (user_id = nullif(current_setting('ngit.user_id',true),'')::uuid) WITH CHECK (user_id = nullif(current_setting('ngit.user_id',true),'')::uuid);
