@@ -1,5 +1,4 @@
--- Role-grant RLS was included in the initial schema migration. Record this
--- compatibility migration for installations created before that change.
+-- Compatibility migration: the current initial schema already enforces grants RLS.
 SET search_path TO ngit,public;
 DO $migration$
 BEGIN
