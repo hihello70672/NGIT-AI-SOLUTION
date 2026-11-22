@@ -13,6 +13,7 @@ from services.api.services.users import UserService
 from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from services.api.modules.brain.api import router as brain_router
+from services.api.modules.memory.api import create_router as create_memory_router
 
 settings = Settings.from_env()
 db = Database(settings.database_url, settings.database_schema)
@@ -29,6 +30,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
+app.include_router(create_memory_router(db, lambda: None), prefix=settings.api_prefix)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -99,13 +101,13 @@ def update_me(body: UserUpdateRequest, context=Depends(current_user)):
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
-    return auth.authenticate(credentials.credentials)
+    return authenticator.authenticate(credentials.credentials)
 
 @app.get(settings.api_prefix + "/admin/users", response_model=list[UserResponse], tags=["users"])
 def admin_users(context=Depends(current_user)):
     actions.authorize(context, "admin.users.manage", "users")
     with db.connection(context.user_id) as conn:
-        rows = conn.execute("SELECT u.id,u.email,u.display_name,u.status,u.created_at,COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),ARRAY[]::text[]) AS roles FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id ORDER BY u.created_at DESC LIMIT 100").fetchall()
+        rows = conn.execute("SELECT u.id,u.email,u.display_name,u.status,u.created_at,COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL), ARRAY[]::text[]) AS roles FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id ORDER BY u.created_at DESC LIMIT 100").fetchall()
     return [public_user(dict(row)) for row in rows]
 
 @app.get(settings.api_prefix + "/admin/audit", tags=["admin"])
