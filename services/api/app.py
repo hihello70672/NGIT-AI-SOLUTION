@@ -2,7 +2,6 @@
 from contextlib import asynccontextmanager
 from uuid import uuid4
 import os
-
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -10,7 +9,7 @@ from psycopg.errors import UniqueViolation
 from services.api.config import Settings
 from services.api.database import Database
 from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
-from services.api.security import SecurityError, create_default_security, error_payload, AuthContext, Policy
+from services.api.security import SecurityError, create_default_security, AuthContext, Policy
 from services.api.services.users import UserService
 from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -26,31 +25,22 @@ users = UserService(db)
 auth = AuthService(users, authenticator)
 bearer = HTTPBearer(auto_error=False)
 
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.open()
-    try:
-        yield
-    finally:
-        db.close()
-
+    try: yield
+    finally: db.close()
 
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 
-
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> AuthContext:
-    if credentials is None:
-        raise SecurityError("unauthenticated", "Authentication required")
-    context = auth.authenticate(credentials.credentials)
+    if credentials is None: raise SecurityError("unauthenticated", "Authentication required")
+    context = authenticator.authenticate(credentials.credentials)
     audit.record(action="auth.authenticated", actor_user_id=context.user_id, outcome="success")
     return context
 
-
 def authenticated_brain(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> AuthContext:
-    """Dependency guard for the existing Brain router's handlers."""
     return current_user(credentials)
-
 
 app.include_router(brain_router, prefix=settings.api_prefix, dependencies=[Depends(authenticated_brain)])
 source_allowlist = tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",") if x.strip())
@@ -61,7 +51,6 @@ if workspace:
         policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
     app.include_router(create_agent_router(build_agent(ToolRegistry()), current_user, approvals, workspace), prefix=settings.api_prefix)
 
-
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     supplied = request.headers.get("X-Request-ID", "")
@@ -70,38 +59,31 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = request.state.request_id
     return response
 
-
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     fields = [{"field": ".".join(map(str, e["loc"][1:])), "message": e["msg"]} for e in exc.errors()]
     return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": "Request validation failed", "request_id": getattr(request.state, "request_id", None), "details": {"fields": fields}}})
 
-
 @app.exception_handler(SecurityError)
 async def security_error_handler(request: Request, exc: SecurityError):
     status = 401 if exc.code == "unauthenticated" else 503 if exc.code == "emergency_stop" else 403
+    from services.api.security import error_payload
     return JSONResponse(status_code=status, content=error_payload(exc, getattr(request.state, "request_id", None)))
-
 
 @app.exception_handler(UniqueViolation)
 async def conflict_handler(request: Request, _: UniqueViolation):
     return JSONResponse(status_code=409, content={"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
-
 @app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": str(exc), "request_id": getattr(request.state, "request_id", None), "details": {}}})
-
 
 @app.exception_handler(Exception)
 async def internal_error_handler(request: Request, _: Exception):
     return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
-
 @app.get("/health", tags=["health"])
-def health():
-    return {"status": "ok"}
-
+def health(): return {"status": "ok"}
 
 @app.post(settings.api_prefix + "/auth/register", response_model=TokenResponse, status_code=201, tags=["authentication"])
 def register(body: RegisterRequest, request: Request):
@@ -109,13 +91,11 @@ def register(body: RegisterRequest, request: Request):
     audit.record(action="auth.register", actor_user_id=str(user["id"]), resource_type="user", resource_id=str(user["id"]), request_id=request.state.request_id)
     return {"access_token": token, "user": public_user(user)}
 
-
 @app.post(settings.api_prefix + "/auth/login", response_model=TokenResponse, tags=["authentication"])
 def login(body: LoginRequest, request: Request):
     user, token = auth.login(str(body.email), body.password)
     audit.record(action="auth.login", actor_user_id=str(user["id"]), resource_type="user", resource_id=str(user["id"]), request_id=request.state.request_id)
     return {"access_token": token, "user": public_user(user)}
-
 
 @app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
 def logout(context: AuthContext = Depends(current_user), credentials: HTTPAuthorizationCredentials = Depends(bearer)):
@@ -123,31 +103,23 @@ def logout(context: AuthContext = Depends(current_user), credentials: HTTPAuthor
     audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return Response(status_code=204)
 
-
 @app.get(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def get_me(context: AuthContext = Depends(current_user)):
     user = users.by_id(context.user_id)
-    if user is None:
-        raise SecurityError("unauthenticated", "Authentication required")
+    if user is None: raise SecurityError("unauthenticated", "Authentication required")
     return public_user(user)
-
 
 @app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def update_me(body: UserUpdateRequest, request: Request, context: AuthContext = Depends(current_user)):
-    if body.display_name is None:
-        raise ValueError("at least one update field is required")
+    if body.display_name is None: raise ValueError("at least one update field is required")
     user = users.update_display_name(context.user_id, body.display_name)
-    if user is None:
-        raise SecurityError("unauthenticated", "Authentication required")
+    if user is None: raise SecurityError("unauthenticated", "Authentication required")
     audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id, request_id=request.state.request_id)
     return public_user(user)
 
-
 def public_user(row):
     created = row["created_at"]
-    if hasattr(created, "isoformat"):
-        created = created.isoformat()
+    if hasattr(created, "isoformat"): created = created.isoformat()
     return {"id": str(row["id"]), "email": row["email"], "display_name": row["display_name"], "status": row["status"], "roles": list(row.get("roles", [])), "created_at": created}
-
 
 __all__ = ["app"]
