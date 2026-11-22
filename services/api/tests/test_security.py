@@ -83,7 +83,7 @@ class AuthorizationTests(unittest.TestCase):
         self.stop.reset("admin")
         self.assertFalse(self.stop.stopped)
 
-    def test_audit_redacts_nested_sensitive_keys_and_defends_internal_state(self):
+    def test_audit_redacts_sensitive_keys_values_and_isolates_copies(self):
         self.audit.record(action="test", details={"access_token": "do-not-log", "nested": {"api-key": "no", "safe": "yes"}})
         event = self.audit.events()[0]
         self.assertNotIn("do-not-log", repr(event))

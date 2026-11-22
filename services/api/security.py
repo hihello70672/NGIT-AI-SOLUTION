@@ -5,6 +5,7 @@ multi-worker production deployment without approved shared persistence.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 import os
@@ -66,7 +67,7 @@ class Authenticator:
         return hmac.new(self._pepper.encode(), token.encode(), hashlib.sha256).hexdigest()
 
     def issue(self, user_id: str, roles: set[str] | frozenset[str] = frozenset(), *, ttl_seconds: int = 3600) -> str:
-        if not isinstance(user_id, str) or not user_id or len(user_id) > 256 or ttl_seconds < 1 or ttl_seconds > 86400:
+        if not isinstance(user_id, str) or not user_id or len(user_id) > 256 or not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or ttl_seconds < 1 or ttl_seconds > 86400:
             raise ValueError("invalid token issue parameters")
         if any(not isinstance(role, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", role) for role in roles):
             raise ValueError("invalid role")
@@ -117,7 +118,6 @@ class AuditLogger:
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, str):
-            # Do not accept opaque credential-like strings in otherwise safe fields.
             if re.search(r"(?i)\b(bearer\s+\S+|(?:sk|pk|api)[-_][a-z0-9_-]{12,})", value):
                 return "[REDACTED]"
             return value[:512]
@@ -136,12 +136,10 @@ class AuditLogger:
                  "details": self._safe(details or {})}
         with self._lock:
             self._events.append(event)
-        return dict(event)
+            return copy.deepcopy(event)
 
     def events(self) -> tuple[dict[str, Any], ...]:
         with self._lock:
-            # Defensive deep copy: consumers must not mutate retained audit history.
-            import copy
             return tuple(copy.deepcopy(event) for event in self._events)
 
 
@@ -203,7 +201,7 @@ class ApprovalEngine:
         self._approvals: dict[str, Approval] = {}
 
     def request(self, actor_user_id: str, action: str, resource_id: str, *, ttl_seconds: int = 600) -> Approval:
-        if not actor_user_id or not action or not resource_id or not 1 <= ttl_seconds <= 3600:
+        if not actor_user_id or not action or not resource_id or not isinstance(ttl_seconds, int) or isinstance(ttl_seconds, bool) or not 1 <= ttl_seconds <= 3600:
             raise ValueError("invalid approval request")
         approval = Approval(secrets.token_urlsafe(18), actor_user_id, action, resource_id, self._clock() + ttl_seconds)
         with self._lock:
@@ -219,7 +217,7 @@ class ApprovalEngine:
                 raise SecurityError("forbidden", "A different approver is required")
             approval.status = "approved" if approved else "rejected"
             approval.approver_user_id = approver_user_id
-            return approval
+            return copy.deepcopy(approval)
 
     def consume(self, approval_id: str, *, actor_user_id: str, action: str, resource_id: str) -> bool:
         with self._lock:
