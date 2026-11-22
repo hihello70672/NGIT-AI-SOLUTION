@@ -30,7 +30,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
-app.include_router(create_memory_router(db, lambda: None), prefix=settings.api_prefix)
+app.include_router(create_memory_router(db, current_user), prefix=settings.api_prefix)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
