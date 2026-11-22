@@ -1,20 +1,29 @@
-# Agent assignments
+# Phase agent assignments
 
-The Chief Architect coordinates across phases and approves shared architecture and contract changes. The 20th engineering-agent role is open because the plan names 19 module-owner roles.
+Assignments designate accountable owners and collaborators, not evidence that work is complete. The Chief Architect coordinates integration, owns boundary/shared-contract approval, and runs phase gates. The specification names 19 module-owner engineering roles; the Chief Architect is the 20th team member, not a new product module.
 
-| Phase | Primary owners | Coordination and collaboration |
+| Phase | Accountable owner(s) | Required collaborators |
 |---|---|---|
-| **1** | Backend Engineer; Database Architect; DevOps Engineer; Frontend Developer | Security Architect and QA Engineer review contracts, security foundations, and test strategy. Chief Architect coordinates boundaries, naming, dependencies, and open decisions. |
-| **2** | Backend Engineer; Security Architect | Database Architect: migrations/data ownership; Frontend Developer: auth states; Administration Engineer: user/role requirements; QA Engineer: authz/isolation; DevOps Engineer: local configuration. |
-| **3** | AI Systems Engineer; Memory Engineer | Backend Engineer: API/services; Database Architect: migrations/indexes; Integration Engineer: optional provider boundary; Security Architect: isolation/secrets; QA Engineer: model/memory/retrieval behavior. |
-| **4** | Autonomous Agent Engineer | Security Architect: approvals/restricted actions; Backend Engineer: task/API; Integration Engineer: optional browser; QA Engineer: observation, verification, permission failures. |
-| **5** | Language Intelligence Engineer | AI Systems Engineer: Brain integration; Frontend Developer: capability/failure states; Security Architect: remote access; QA Engineer: language and access tests. |
-| **6** | Administration Engineer; Billing Engineer | Security Architect: enforcement review; Backend Engineer/Database Architect: APIs/data; Frontend Developer: screens; Integration Engineer only after provider approval; QA Engineer: privileged ops, quotas, billing. |
-| **7** | Integration Engineer | AI Systems Engineer: optional routing/fallback; Security Architect: credentials; Backend Engineer: APIs; QA Engineer: failures, health, provider-independent operation. |
-| **8** | Creative AI Engineer | Integration Engineer: optional adapters; Backend Engineer/Database Architect: tasks/assets; Frontend Developer: studio; DevOps Engineer: runtime needs; QA Engineer: pipeline failures/outputs. |
-| **9** | Video Presentation Engineer; Presenter Engineer | Creative AI Engineer: media; Language Intelligence Engineer: speech/subtitles; Frontend Developer: workflows; Backend Engineer: tasks/metadata; QA Engineer: sync, previews, subtitles, exports. |
-| **10** | News Intelligence Engineer; Educational AI Engineer | Video Presentation/Presenter Engineers: presentation outputs; Language Intelligence Engineer: multilingual; Security Architect: newsroom safeguards; QA Engineer: verification and education workflows/failures. |
-| **11** | Cybersecurity Engineer | Security Architect: authorization/approval/audit; Autonomous Agent Engineer: approved tools; Backend Engineer: integration; QA Engineer: accepted/rejected targets. |
-| **12** | QA Engineer; DevOps Engineer | Every owner fixes and verifies reported failures; Backend Engineer, Database Architect, Frontend Developer support integration; Security Architect reviews gates; Chief Architect coordinates acceptance and verified ZIP. |
+| 1. Architecture, repository, database, shared protocols | Chief Architect; Database Architect; Backend Engineer | Security Architect; DevOps Engineer; QA Engineer. Chief Architect approves shared boundaries/contracts. |
+| 2. Authentication, backend, security, user management | Backend Engineer; Security Architect; Database Architect | Frontend Developer; Administration Engineer; QA Engineer; DevOps Engineer. |
+| 3. Brain, model runtime, memory, knowledge | AI Systems Engineer; Memory Engineer | Backend Engineer; Database Architect; Integration Engineer; QA Engineer; Security Architect. |
+| 4. Personal Agent, tools, browser/computer interfaces | Autonomous Agent Engineer | Backend Engineer; Security Architect; Integration Engineer; QA Engineer; Database Architect for persistence decisions. |
+| 5. Multilingual, voice, vision, remote control | Language Intelligence Engineer | AI Systems Engineer; Backend Engineer; Security Architect; Frontend Developer; QA Engineer. |
+| 6. Administration, rules, service control, billing | Administration Engineer; Billing Engineer; Security Architect | Backend Engineer; Database Architect; Frontend Developer; QA Engineer; DevOps Engineer. |
+| 7. Optional provider management and browsing | Integration Engineer | AI Systems Engineer; Autonomous Agent Engineer; Security Architect; Backend Engineer; QA Engineer. |
+| 8. Creative Studio | Creative AI Engineer | Backend Engineer; Database Architect; Frontend Developer; AI Systems Engineer; QA Engineer; DevOps Engineer. |
+| 9. Content-to-Video, presenters, lip-sync, subtitles | Video Presentation Engineer; Presenter Engineer | Creative AI Engineer; Language Intelligence Engineer; Backend Engineer; Frontend Developer; QA Engineer. Chief Architect approves Presenter boundary/placement changes. |
+| 10. Newsroom, Teaching, Storytelling | News Intelligence Engineer; Educational AI Engineer | Video Presentation Engineer; Presenter Engineer; Creative AI Engineer; AI Systems Engineer; Security Architect; QA Engineer. |
+| 11. Cybersecurity Center | Cybersecurity Engineer; Security Architect | Backend Engineer; Autonomous Agent Engineer; Administration Engineer; QA Engineer. Security Architect reviews authorization/audit controls. |
+| 12. Integration, QA, documentation, local release | QA Engineer; DevOps Engineer | All module owners; Backend Engineer; Database Architect; Frontend Developer; Chief Architect coordinates integration and release gates. |
 
-All owners report actual status, dependencies, tests run, blockers, and proposed contract changes. No completion or passing-test claim without repository evidence and actual execution.
+## Operating rules
+
+- Preserve working code; do not duplicate services or create empty scaffolding.
+- Review existing code and relevant interface docs before assigning implementation paths.
+- Document dependencies and report blockers early.
+- Add tests with implementation; report exact tests actually executed and results. Never claim tests passed unless run.
+- Route proposed shared-interface and module-boundary changes through the Chief Architect.
+- Keep downstream work in approved phase order; external AI integrations remain optional.
+
+See the [phase plan](PHASE_PLAN.md), [architecture](ARCHITECTURE.md), and [status](STATUS.md) for gates, current evidence, and outstanding verification.
