@@ -1,48 +1,13 @@
--- Add the missing domain tables, tenant constraints and policies to databases
--- created by early versions of 0001. Safe to re-run after a partial application.
-SET search_path TO ngit, public;
-CREATE TABLE IF NOT EXISTS billing_plans (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), plan_key text NOT NULL UNIQUE, name text NOT NULL,
- currency char(3) NOT NULL CHECK(currency ~ '^[A-Z]{3}$'), amount_minor bigint NOT NULL CHECK(amount_minor>=0),
- billing_interval text NOT NULL CHECK(billing_interval IN ('month','year','once')), entitlements jsonb NOT NULL DEFAULT '{}'
-);
-CREATE TABLE IF NOT EXISTS subscriptions (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- plan_id uuid NOT NULL REFERENCES billing_plans(id) ON DELETE RESTRICT,
- status text NOT NULL DEFAULT 'active' CHECK(status IN ('trialing','active','past_due','cancelled','ended')),
- current_period_start timestamptz NOT NULL DEFAULT now(), current_period_end timestamptz,
- created_at timestamptz NOT NULL DEFAULT now(), CHECK(current_period_end IS NULL OR current_period_end>current_period_start)
-);
-CREATE TABLE IF NOT EXISTS usage_records (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- subscription_id uuid REFERENCES subscriptions(id) ON DELETE SET NULL, metric text NOT NULL,
- quantity bigint NOT NULL CHECK(quantity>=0), recorded_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS provider_configs (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider_key text NOT NULL UNIQUE, display_name text NOT NULL,
- enabled boolean NOT NULL DEFAULT false, credential_ref text, config jsonb NOT NULL DEFAULT '{}',
- created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS media_assets (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- media_type text NOT NULL CHECK(media_type IN ('image','video','audio','document','other')),
- metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id)
-);
-CREATE TABLE IF NOT EXISTS videos (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- source_asset_id uuid, title text NOT NULL DEFAULT '', metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(),
- FOREIGN KEY(source_asset_id,user_id) REFERENCES media_assets(id,user_id) ON DELETE SET NULL (source_asset_id)
-);
-CREATE TABLE IF NOT EXISTS presentations (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- title text NOT NULL, metadata jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now(),
- updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(id,user_id)
-);
-CREATE TABLE IF NOT EXISTS presentation_slides (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), presentation_id uuid NOT NULL, user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
- position integer NOT NULL CHECK(position>=0), metadata jsonb NOT NULL DEFAULT '{}', UNIQUE(presentation_id,position),
- FOREIGN KEY(presentation_id,user_id) REFERENCES presentations(id,user_id) ON DELETE CASCADE
-);
+-- Add domain tables absent from early installations and close tenant isolation gaps.
+SET search_path TO ngit,public;
+CREATE TABLE IF NOT EXISTS billing_plans(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),plan_key text NOT NULL UNIQUE,name text NOT NULL,currency char(3) NOT NULL CHECK(currency ~ '^[A-Z]{3}$'),amount_minor bigint NOT NULL CHECK(amount_minor>=0),billing_interval text NOT NULL CHECK(billing_interval IN ('month','year','once')),entitlements jsonb NOT NULL DEFAULT '{}');
+CREATE TABLE IF NOT EXISTS subscriptions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,plan_id uuid NOT NULL REFERENCES billing_plans(id) ON DELETE RESTRICT,status text NOT NULL DEFAULT 'active' CHECK(status IN ('trialing','active','past_due','cancelled','ended')),current_period_start timestamptz NOT NULL DEFAULT now(),current_period_end timestamptz,created_at timestamptz NOT NULL DEFAULT now(),CHECK(current_period_end IS NULL OR current_period_end>current_period_start));
+CREATE TABLE IF NOT EXISTS usage_records(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,subscription_id uuid REFERENCES subscriptions(id) ON DELETE SET NULL,metric text NOT NULL,quantity bigint NOT NULL CHECK(quantity>=0),recorded_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS provider_configs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),provider_key text NOT NULL UNIQUE,display_name text NOT NULL,enabled boolean NOT NULL DEFAULT false,credential_ref text,config jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS media_assets(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,media_type text NOT NULL CHECK(media_type IN ('image','video','audio','document','other')),metadata jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(id,user_id));
+CREATE TABLE IF NOT EXISTS videos(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,source_asset_id uuid,title text NOT NULL DEFAULT '',metadata jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now(),FOREIGN KEY(source_asset_id,user_id) REFERENCES media_assets(id,user_id) ON DELETE SET NULL (source_asset_id));
+CREATE TABLE IF NOT EXISTS presentations(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,title text NOT NULL,metadata jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),UNIQUE(id,user_id));
+CREATE TABLE IF NOT EXISTS presentation_slides(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),presentation_id uuid NOT NULL,user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,position integer NOT NULL CHECK(position>=0),metadata jsonb NOT NULL DEFAULT '{}',UNIQUE(presentation_id,position),FOREIGN KEY(presentation_id,user_id) REFERENCES presentations(id,user_id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS subscriptions_user_status_idx ON subscriptions(user_id,status);
 CREATE INDEX IF NOT EXISTS usage_records_user_recent_idx ON usage_records(user_id,recorded_at DESC,id);
 CREATE INDEX IF NOT EXISTS provider_configs_enabled_idx ON provider_configs(provider_key) WHERE enabled;
@@ -50,11 +15,5 @@ CREATE INDEX IF NOT EXISTS media_assets_user_recent_idx ON media_assets(user_id,
 CREATE INDEX IF NOT EXISTS videos_user_recent_idx ON videos(user_id,created_at DESC,id);
 CREATE INDEX IF NOT EXISTS presentations_user_recent_idx ON presentations(user_id,updated_at DESC,id);
 CREATE INDEX IF NOT EXISTS presentation_slides_parent_idx ON presentation_slides(presentation_id,user_id,position);
-DO $$ DECLARE t text; BEGIN
- FOREACH t IN ARRAY ARRAY['subscriptions','usage_records','media_assets','videos','presentations','presentation_slides'] LOOP
-  EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t);
-  EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t);
-  EXECUTE format('CREATE POLICY %I ON %I USING (user_id = nullif(current_setting(''ngit.user_id'', true), '''')::uuid) WITH CHECK (user_id = nullif(current_setting(''ngit.user_id'', true), '''')::uuid)',t||'_owner',t);
- END LOOP;
-END $$;
-INSERT INTO schema_migrations(version) VALUES ('0004_complete_domain_schema') ON CONFLICT DO NOTHING;
+DO $$ DECLARE t text; BEGIN FOREACH t IN ARRAY ARRAY['subscriptions','usage_records','media_assets','videos','presentations','presentation_slides'] LOOP EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY',t); EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY',t); EXECUTE format('CREATE POLICY %I ON %I USING (user_id=nullif(current_setting(''ngit.user_id'',true),'''')::uuid) WITH CHECK (user_id=nullif(current_setting(''ngit.user_id'',true),'''')::uuid)',t||'_owner',t); END LOOP; END $$;
+INSERT INTO schema_migrations(version) VALUES('0004_complete_domain_schema') ON CONFLICT DO NOTHING;
