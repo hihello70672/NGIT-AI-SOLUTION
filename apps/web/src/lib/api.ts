@@ -35,4 +35,4 @@ export const api = {
   adminUsers: async (token: string): Promise<User[]> => (await request<User[]>('/admin/users', {}, token)).map(normalizeUser),
 };
 export function getSavedToken(): string | null { try { return localStorage.getItem('ngit_access_token'); } catch { return null; } }
-export function saveToken(token: string | null): void { try { if (token) localStorage.setItem('ngit_access_token', token); else localStorage.removeItem('ngit_access_token'); } catch { /* Session remains usable in memory. */ } }
+export function saveToken(token: string | null): void { try { if (token) localStorage.setItem('ngit_access_token', token); else localStorage.removeItem('ngit_access_token'); } catch { /* Session remains usable in memory for this tab. */ } }
