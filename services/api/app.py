@@ -1,6 +1,7 @@
-"""FastAPI entry point for the NGIT identity API."""
+"""FastAPI entry point for NGIT identity and modular API services."""
 from contextlib import asynccontextmanager
 from uuid import uuid4
+import os
 from fastapi import FastAPI, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -14,6 +15,8 @@ from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from services.api.modules.brain.api import router as brain_router
 from services.api.modules.memory.api import create_router as create_memory_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
 
 settings = Settings.from_env()
 db = Database(settings.database_url, settings.database_schema)
@@ -28,7 +31,6 @@ async def lifespan(_: FastAPI):
     yield
     db.close()
 
-
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
@@ -37,6 +39,13 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
 app.include_router(create_memory_router(db, current_user), prefix=settings.api_prefix)
+# The workspace must be explicitly provisioned. Do not expose agent filesystem
+# access against the API process working directory by default.
+_agent_workspace = os.environ.get("NGIT_AGENT_WORKSPACE", "").strip()
+if _agent_workspace:
+    _agent_tools = ToolRegistry()
+    _agent = build_agent(_agent_tools, actions, _agent_workspace)
+    app.include_router(create_agent_router(_agent, current_user, approvals), prefix=settings.api_prefix)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -52,8 +61,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 @app.exception_handler(SecurityError)
 async def security_error_handler(request: Request, exc: SecurityError):
-    status = 401 if exc.code == "unauthenticated" else 403
-    return JSONResponse(status_code=status, content=error_payload(exc, getattr(request.state, "request_id", None)))
+    return JSONResponse(status_code=401 if exc.code == "unauthenticated" else 403, content=error_payload(exc, getattr(request.state, "request_id", None)))
 
 @app.exception_handler(UniqueViolation)
 async def conflict_handler(request: Request, _: UniqueViolation):

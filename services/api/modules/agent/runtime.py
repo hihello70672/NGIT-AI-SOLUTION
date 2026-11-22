@@ -1,14 +1,11 @@
 """Deterministic Personal Agent planner and approval-gated tool execution.
 
-Tools are capabilities, not arbitrary callables exposed by a model. Every call is
-validated against the registry, scoped to the authenticated owner, and checked
-through the shared RestrictedActionManager before a sensitive side effect.
+Tools are explicit capabilities; sensitive calls are authorized by the shared
+RestrictedActionManager before any handler can cause a side effect.
 """
 from __future__ import annotations
 
-import json
 import re
-import shlex
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,11 +19,9 @@ from services.api.security import AuthContext, RestrictedActionManager, Security
 
 class AgentError(ValueError):
     """Safe, machine-readable agent failure."""
-
     def __init__(self, code: str, message: str):
         super().__init__(message)
-        self.code = code
-        self.message = message
+        self.code, self.message = code, message
 
 
 @dataclass(frozen=True)
@@ -99,10 +94,10 @@ class ToolRegistry:
 
 
 class BrowserInterface:
-    """Safe browser interface. Reads are adapter-provided; navigation is approval-gated."""
+    """Adapter-based browser boundary; navigation is registered as sensitive."""
     def __init__(self, reader: Callable[[str], str] | None = None,
                  navigator: Callable[[str], Any] | None = None) -> None:
-        self.reader = reader or (lambda url: f"Page inspection adapter is not configured for {urlparse(url).netloc}")
+        self.reader = reader or (lambda url: f"Browser adapter unavailable for {urlparse(url).netloc}")
         self.navigator = navigator
 
     @staticmethod
@@ -115,8 +110,7 @@ class BrowserInterface:
         return value
 
     def inspect(self, args: Mapping[str, Any]) -> ToolResult:
-        url = self._url(args.get("url"))
-        value = self.reader(url)
+        value = self.reader(self._url(args.get("url")))
         if not isinstance(value, str):
             raise AgentError("tool_failed", "Browser adapter returned an invalid observation")
         return ToolResult(value[:20000], "Browser page inspected", True)
@@ -125,12 +119,11 @@ class BrowserInterface:
         url = self._url(args.get("url"))
         if self.navigator is None:
             raise AgentError("tool_unavailable", "Browser navigation adapter is not configured")
-        value = self.navigator(url)
-        return ToolResult(value, "Browser navigation completed", True)
+        return ToolResult(self.navigator(url), "Browser navigation completed", True)
 
 
 class FilesystemInterface:
-    """Sandboxed filesystem with read-only default and explicit bounded writes."""
+    """Workspace-sandboxed UTF-8 text reads and bounded writes."""
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -160,12 +153,13 @@ class FilesystemInterface:
             raise AgentError("invalid_arguments", "Text content is required and must be at most 1 MB")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        verified = path.read_text(encoding="utf-8") == content
         return ToolResult({"path": str(path.relative_to(self.root)), "bytes": len(content.encode("utf-8"))},
-                          "File written", path.read_text(encoding="utf-8") == content)
+                          "File written", verified)
 
 
 class ComputerControlInterface:
-    """No shell or OS control is enabled implicitly; adapters must be supplied."""
+    """No shell or OS control is implicit; a caller must supply a bounded adapter."""
     def __init__(self, adapter: Callable[[str, Mapping[str, Any]], Any] | None = None) -> None:
         self.adapter = adapter
 
@@ -175,36 +169,30 @@ class ComputerControlInterface:
             raise AgentError("invalid_arguments", "Unsupported computer action")
         if self.adapter is None:
             raise AgentError("tool_unavailable", "Computer-control adapter is not configured")
-        result = self.adapter(action, args)
-        return ToolResult(result, f"Computer action {action} completed", True)
+        return ToolResult(self.adapter(action, args), f"Computer action {action} completed", True)
 
 
 class AgentPlanner:
-    """Small deterministic planner for explicit, inspectable requests.
-
-    Planning is intentionally conservative; model-generated plans must be reviewed
-    and still pass registry, schema, sandbox and permission checks at execution.
-    """
+    """Conservative planner for explicit inspectable requests."""
     def plan(self, owner_id: str, goal: str) -> AgentPlan:
         if not owner_id or not isinstance(goal, str) or not goal.strip() or len(goal) > 4000:
             raise AgentError("invalid_goal", "A non-empty goal of at most 4000 characters is required")
         text = goal.strip()
         steps: list[PlannedStep] = []
-        match = re.fullmatch(r"(?:read|show)\s+(?:file\s+)?(.+)", text, flags=re.I)
+        match = re.fullmatch(r"(?:read|show)\s+(?:file\s+)?(.+)", text, re.I)
         if match:
             steps.append(PlannedStep("filesystem.read", {"path": match.group(1).strip()}, "Read a workspace file"))
         else:
-            match = re.fullmatch(r"(?:write|create)\s+(?:file\s+)?([^\n]+?)\s+with\s+content:\s*([\s\S]*)", text, flags=re.I)
+            match = re.fullmatch(r"(?:write|create)\s+(?:file\s+)?([^\n]+?)\s+with\s+content:\s*([\s\S]*)", text, re.I)
             if match:
                 steps.append(PlannedStep("filesystem.write", {"path": match.group(1).strip(), "content": match.group(2)}, "Write a workspace file"))
             else:
-                match = re.fullmatch(r"(?:inspect|open)\s+(https?://\S+)", text, flags=re.I)
+                match = re.fullmatch(r"(?:inspect|open)\s+(https?://\S+)", text, re.I)
                 if match:
                     steps.append(PlannedStep("browser.inspect", {"url": match.group(1)}, "Inspect a web page"))
                 else:
                     raise AgentError("plan_unavailable", "Could not safely turn this goal into an explicit tool plan")
-        now = datetime.now(timezone.utc).isoformat()
-        return AgentPlan(str(uuid4()), owner_id, text, tuple(steps), now)
+        return AgentPlan(str(uuid4()), owner_id, text, tuple(steps), datetime.now(timezone.utc).isoformat())
 
 
 class AgentService:
@@ -224,11 +212,9 @@ class AgentService:
         plan = self.planner.plan(context.user_id, goal)
         now = self._now()
         record = TaskRecord(plan.task_id, context.user_id, plan.goal, "accepted", now, now,
-                            plan=[{"tool_name": s.tool_name, "arguments": dict(s.arguments), "description": s.description}
-                                  for s in plan.steps])
+            plan=[{"tool_name": s.tool_name, "arguments": dict(s.arguments), "description": s.description} for s in plan.steps])
         with self._lock:
-            self._records[record.task_id] = record
-            self._plans[record.task_id] = plan
+            self._records[record.task_id], self._plans[record.task_id] = record, plan
         return self.execute(context, record.task_id)
 
     def execute(self, context: AuthContext, task_id: str, approval_id: str | None = None) -> TaskRecord:
@@ -238,10 +224,11 @@ class AgentService:
                 raise AgentError("task_not_found", "Task was not found")
             if record.state in {"succeeded", "failed", "rejected"}:
                 return record
-        record.state = "running"
-        record.updated_at = self._now()
+            if record.state == "running":
+                raise AgentError("task_running", "Task is already running")
+            record.state, record.updated_at = "running", self._now()
+        results = []
         try:
-            results = []
             for index, step in enumerate(plan.steps):
                 tool = self.tools.get(step.tool_name)
                 resource_id = f"{task_id}:{index}"
@@ -251,56 +238,70 @@ class AgentService:
                         self.permissions.authorize(context, action, resource_id, approval_id=approval_id)
                     except SecurityError as exc:
                         if exc.code == "approval_required":
-                            record.state = "awaiting_approval"
-                            record.pending_approval_id = None
-                            record.updated_at = self._now()
-                            record.observations.append({"step": index, "state": "approval_required", "action": action,
-                                                        "resource_id": resource_id})
+                            with self._lock:
+                                record.state, record.updated_at = "awaiting_approval", self._now()
+                                record.observations.append({"step": index, "state": "approval_required",
+                                                            "action": action, "resource_id": resource_id})
                             return record
                         raise
                 result = tool.handler(step.arguments)
-                observation = {"step": index, "tool_name": tool.name, "observation": result.observation,
-                               "verified": result.verified}
-                record.observations.append(observation)
+                record.observations.append({"step": index, "tool_name": tool.name,
+                    "observation": result.observation, "verified": result.verified})
                 if not result.verified:
                     raise AgentError("verification_failed", "Tool result could not be verified")
                 results.append(result.value)
             record.result = results[0] if len(results) == 1 else results
-            record.state = "succeeded"
-            record.error = None
+            record.state, record.error = "succeeded", None
         except (AgentError, SecurityError) as exc:
-            record.state = "failed"
-            record.error = exc.code if isinstance(exc, (AgentError, SecurityError)) else "tool_failed"
+            record.state, record.error = "failed", exc.code
         except Exception:
-            record.state = "failed"
-            record.error = "tool_failed"
+            record.state, record.error = "failed", "tool_failed"
         record.updated_at = self._now()
         return record
 
     def approve_and_resume(self, context: AuthContext, task_id: str, approval_id: str) -> TaskRecord:
         with self._lock:
-            record = self._records.get(task_id)
-            plan = self._plans.get(task_id)
+            record, plan = self._records.get(task_id), self._plans.get(task_id)
             if record is None or plan is None or record.owner_id != context.user_id:
                 raise AgentError("task_not_found", "Task was not found")
             if record.state != "awaiting_approval":
                 raise AgentError("invalid_task_state", "Task is not awaiting approval")
-            pending = next((item for item in record.observations if item.get("state") == "approval_required"), None)
+            pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
             if pending is None:
                 raise AgentError("invalid_task_state", "No pending action requires approval")
             action, resource_id = pending["action"], pending["resource_id"]
+            index = pending["step"]
         try:
             self.permissions.authorize(context, action, resource_id, approval_id=approval_id)
         except SecurityError as exc:
-            record.state = "failed"
-            record.error = exc.code
-            record.updated_at = self._now()
+            record.state, record.error, record.updated_at = "failed", exc.code, self._now()
             return record
-        # Remove the gate observation and execute once with the one-time grant.
+        # The manager's grant is one-time and was consumed above. Continue at the
+        # pending step without reusing a consumed grant; subsequent sensitive steps
+        # get their own approval checkpoint.
         with self._lock:
             record.observations = [o for o in record.observations if o.get("state") != "approval_required"]
-            record.state = "accepted"
-        return self.execute(context, task_id, approval_id=approval_id)
+            record.pending_approval_id = None
+            record.state = "running"
+        results = []
+        # Recover already completed results from observations is intentionally not
+        # possible for arbitrary tool values; this single-step plan resumes safely.
+        if len(plan.steps) != 1 or index != 0:
+            record.state, record.error, record.updated_at = "failed", "resume_not_supported", self._now()
+            return record
+        try:
+            result = self.tools.get(plan.steps[index].tool_name).handler(plan.steps[index].arguments)
+            record.observations.append({"step": index, "tool_name": plan.steps[index].tool_name,
+                "observation": result.observation, "verified": result.verified})
+            if not result.verified:
+                raise AgentError("verification_failed", "Tool result could not be verified")
+            record.result, record.state, record.error = result.value, "succeeded", None
+        except AgentError as exc:
+            record.state, record.error = "failed", exc.code
+        except Exception:
+            record.state, record.error = "failed", "tool_failed"
+        record.updated_at = self._now()
+        return record
 
     def reject(self, context: AuthContext, task_id: str) -> TaskRecord:
         with self._lock:
@@ -309,9 +310,7 @@ class AgentService:
                 raise AgentError("task_not_found", "Task was not found")
             if record.state != "awaiting_approval":
                 raise AgentError("invalid_task_state", "Task is not awaiting approval")
-            record.state = "rejected"
-            record.error = "approval_rejected"
-            record.updated_at = self._now()
+            record.state, record.error, record.updated_at = "rejected", "approval_rejected", self._now()
             return record
 
     def get(self, context: AuthContext, task_id: str) -> TaskRecord:
@@ -332,19 +331,18 @@ class AgentService:
 def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager,
                 workspace: str | Path, browser: BrowserInterface | None = None,
                 computer: ComputerControlInterface | None = None) -> AgentService:
-    browser = browser or BrowserInterface()
-    computer = computer or ComputerControlInterface()
+    browser, computer = browser or BrowserInterface(), computer or ComputerControlInterface()
     fs = FilesystemInterface(workspace)
-    tools.register(ToolDefinition("browser.inspect", "Read-only inspection of an HTTP(S) page", False, browser.inspect))
-    tools.register(ToolDefinition("browser.navigate", "Navigate a browser to an HTTP(S) URL", True, browser.navigate))
-    tools.register(ToolDefinition("filesystem.read", "Read UTF-8 text inside the agent workspace", False, fs.read))
-    tools.register(ToolDefinition("filesystem.write", "Write UTF-8 text inside the agent workspace", True, fs.write))
-    tools.register(ToolDefinition("computer.perform", "Perform an explicitly supported computer action", True, computer.perform))
+    tools.register(ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect))
+    tools.register(ToolDefinition("browser.navigate", "Approval-gated HTTP(S) browser navigation", True, browser.navigate))
+    tools.register(ToolDefinition("filesystem.read", "Read UTF-8 text in the agent workspace", False, fs.read))
+    tools.register(ToolDefinition("filesystem.write", "Approval-gated workspace text write", True, fs.write))
+    tools.register(ToolDefinition("computer.perform", "Approval-gated computer action via configured adapter", True, computer.perform))
     return AgentService(tools, permissions)
 
 
 def public_record(record: TaskRecord) -> dict[str, Any]:
     return {"task_id": record.task_id, "goal": record.goal, "state": record.state,
-            "created_at": record.created_at, "updated_at": record.updated_at,
-            "plan": record.plan, "observations": record.observations, "result": record.result,
-            "error": record.error, "pending_approval_id": record.pending_approval_id}
+        "created_at": record.created_at, "updated_at": record.updated_at, "plan": record.plan,
+        "observations": record.observations, "result": record.result, "error": record.error,
+        "pending_approval_id": record.pending_approval_id}
