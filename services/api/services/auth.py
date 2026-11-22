@@ -6,8 +6,8 @@ import os
 import secrets
 from services.api.security import Authenticator, AuthContext, SecurityError
 
+
 class AuthService:
-    """Credential service backed by the user repository and shared authenticator."""
     def __init__(self, users, authenticator: Authenticator):
         self.users, self.authenticator = users, authenticator
         self.pepper = os.getenv("PASSWORD_PEPPER", "")
@@ -33,15 +33,13 @@ class AuthService:
 
     def register(self, email: str, password: str, display_name: str):
         user = self.users.create(email, self._hash_password(password), display_name)
-        roles = set(user.get("roles") or ["user"])
-        return user, self.authenticator.issue(str(user["id"]), roles)
+        return user, self.authenticator.issue(str(user["id"]), set(user.get("roles") or ["user"]))
 
     def login(self, email: str, password: str):
         user = self.users.by_email(email)
         if not user or user.get("status") != "active" or not self._verify(password, user.get("password_hash", "")):
             raise SecurityError("unauthenticated", "Invalid email or password")
-        roles = set(user.get("roles") or ["user"])
-        return user, self.authenticator.issue(str(user["id"]), roles)
+        return user, self.authenticator.issue(str(user["id"]), set(user.get("roles") or ["user"]))
 
     def authenticate(self, token: str) -> AuthContext:
         context = self.authenticator.authenticate(token)
@@ -49,5 +47,4 @@ class AuthService:
         if not user or user.get("status") != "active":
             self.authenticator.revoke(token)
             raise SecurityError("unauthenticated", "Authentication required")
-        # Never trust role claims from browser or stale token snapshots.
         return AuthContext(context.user_id, frozenset(user.get("roles") or ["user"]), context.token_id)

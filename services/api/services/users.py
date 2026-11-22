@@ -12,7 +12,10 @@ class UserService:
 
     def create(self, email: str, password_hash: str, display_name: str) -> dict[str, Any]:
         with self.database.connection() as conn:
-            row = conn.execute("INSERT INTO users(email,password_hash,display_name) VALUES (%s,%s,%s) RETURNING id,email,display_name,status,created_at", (email.lower(), password_hash, display_name)).fetchone()
+            row = conn.execute(
+                "INSERT INTO users(email,password_hash,display_name) VALUES (%s,%s,%s) RETURNING id,email,display_name,status,created_at",
+                (email.lower(), password_hash, display_name),
+            ).fetchone()
             if row is None:
                 raise RuntimeError("user creation returned no row")
             user = self._mapping(row, ("id", "email", "display_name", "status", "created_at"))
@@ -20,16 +23,14 @@ class UserService:
             if role:
                 role_id = role["id"] if isinstance(role, dict) else role[0]
                 conn.execute("INSERT INTO user_roles(user_id,role_id) VALUES (%s,%s) ON CONFLICT DO NOTHING", (user["id"], role_id))
-                user["roles"] = ["user"]
-            else:
-                user["roles"] = []
+            user["roles"] = ["user"] if role else []
             user["password_hash"] = password_hash
             return user
 
     def by_email(self, email: str) -> dict[str, Any] | None:
         with self.database.connection() as conn:
             row = conn.execute("""SELECT u.id,u.email,u.password_hash,u.display_name,u.status,u.created_at,
-                COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),ARRAY[]::text[]) AS roles
+                COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),ARRAY[]::text[]) roles
                 FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id
                 WHERE u.email=%s GROUP BY u.id""", (email.lower(),)).fetchone()
         return None if row is None else self._mapping(row, ("id", "email", "password_hash", "display_name", "status", "created_at", "roles"))
@@ -37,7 +38,7 @@ class UserService:
     def by_id(self, user_id: str) -> dict[str, Any] | None:
         with self.database.connection(user_id) as conn:
             row = conn.execute("""SELECT u.id,u.email,u.display_name,u.status,u.created_at,
-                COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),ARRAY[]::text[]) AS roles
+                COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),ARRAY[]::text[]) roles
                 FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id
                 WHERE u.id=%s GROUP BY u.id""", (user_id,)).fetchone()
         return None if row is None else self._mapping(row, ("id", "email", "display_name", "status", "created_at", "roles"))
@@ -53,10 +54,14 @@ class UserService:
             return user
 
     def list_users(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 100 or offset < 0:
+            raise ValueError("invalid pagination")
         with self.database.connection() as conn:
             rows = conn.execute("""SELECT u.id,u.email,u.display_name,u.status,u.created_at,
-                COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),ARRAY[]::text[]) AS roles
+                COALESCE(array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),ARRAY[]::text[]) roles
                 FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id
                 GROUP BY u.id ORDER BY u.created_at DESC,u.id LIMIT %s OFFSET %s""", (limit, offset)).fetchall()
-        keys = ("id", "email", "display_name", "status", "created_at", "roles")
-        return [self._mapping(row, keys) for row in rows]
+        return [self._mapping(row, ("id", "email", "display_name", "status", "created_at", "roles")) for row in rows]
+
+
+__all__ = ["UserService"]
