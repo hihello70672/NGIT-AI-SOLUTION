@@ -1,7 +1,6 @@
 -- NGIT initial schema. Ordered plain SQL migrations, PostgreSQL 16+.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS ngit;
-SET search_path TO ngit, public;
 CREATE TABLE IF NOT EXISTS ngit.schema_migrations(version text PRIMARY KEY,applied_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS ngit.roles(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL UNIQUE,description text NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS ngit.users(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),email text NOT NULL UNIQUE,password_hash text NOT NULL,display_name text NOT NULL,status text NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled','pending')),created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());

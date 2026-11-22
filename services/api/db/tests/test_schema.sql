@@ -1,4 +1,4 @@
--- Disposable database integration assertions. Run as non-owner, non-superuser.
+-- Disposable DB assertions as non-owner, non-superuser application-equivalent role.
 BEGIN;
 SET search_path TO ngit,public;
 DO $test$
@@ -7,8 +7,7 @@ DECLARE u1 uuid; u2 uuid; c1 uuid; p1 uuid; a1 uuid; visible_count integer;
 BEGIN
  INSERT INTO ngit.users(email,password_hash,display_name) VALUES('db-test-one@example.invalid','test-only','Test One') RETURNING id INTO u1;
  INSERT INTO ngit.users(email,password_hash,display_name) VALUES('db-test-two@example.invalid','test-only','Test Two') RETURNING id INTO u2;
- rejected:=false;
- BEGIN INSERT INTO ngit.users(email,password_hash,display_name) VALUES('DB-TEST-ONE@example.invalid','test-only','duplicate'); EXCEPTION WHEN unique_violation THEN rejected:=true; END;
+ rejected:=false; BEGIN INSERT INTO ngit.users(email,password_hash,display_name) VALUES('DB-TEST-ONE@example.invalid','test-only','duplicate'); EXCEPTION WHEN unique_violation THEN rejected:=true; END;
  IF NOT rejected THEN RAISE EXCEPTION 'case-insensitive duplicate email accepted'; END IF;
  INSERT INTO ngit.conversations(user_id,title) VALUES(u1,'One') RETURNING id INTO c1;
  INSERT INTO ngit.conversations(user_id,title) VALUES(u2,'Two');
