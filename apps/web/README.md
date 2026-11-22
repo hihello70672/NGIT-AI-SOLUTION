@@ -1,6 +1,6 @@
 # Web application
 
-`apps/web` is the repository's React, TypeScript, and Vite frontend. It provides a responsive dark design system with green accents and Inter typography, sign-in and registration, an authenticated dashboard shell, profile settings, and the read-only administrator user listing. Shared API requests use the existing FastAPI `/api/v1` REST contracts; the backend remains responsible for authentication, authorization, and user ownership.
+`apps/web` is the repository's React, TypeScript, and Vite frontend. It provides a responsive dark design system with green accents and Inter typography, sign-in and registration, an authenticated dashboard shell, profile settings, and a read-only administrator user listing. Shared API requests use the existing FastAPI `/api/v1` REST contracts; the backend remains responsible for authentication, authorization, and user ownership.
 
 ## Run locally
 
