@@ -1,4 +1,4 @@
-"""FastAPI entry point for NGIT identity and modular API services."""
+"""FastAPI entry point for NGIT identity, modular APIs and user management."""
 from contextlib import asynccontextmanager
 from uuid import uuid4
 import os
@@ -16,7 +16,7 @@ from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from services.api.modules.brain.api import router as brain_router
 from services.api.modules.memory.api import create_router as create_memory_router
-from services.api.modules.agent.api import create_agent_router
+from services.api.modules.agent.api import create_router as create_agent_router
 from services.api.modules.agent.runtime import ToolRegistry, build_agent
 
 settings = Settings.from_env()
@@ -26,7 +26,6 @@ users = UserService(db)
 auth = AuthService(users, authenticator)
 bearer = HTTPBearer(auto_error=False)
 
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.open()
@@ -35,15 +34,12 @@ async def lifespan(_: FastAPI):
     finally:
         db.close()
 
-
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
-
 
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> AuthContext:
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
-    return auth.authenticator.authenticate(credentials.credentials)
-
+    return auth.authenticate(credentials.credentials)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
@@ -53,43 +49,35 @@ async def request_id_middleware(request: Request, call_next):
     response.headers["X-Request-ID"] = request.state.request_id
     return response
 
-
 @app.exception_handler(RequestValidationError)
-async def validation_error_handler(request: Request, exc: RequestValidationError):
+async def validation_error(request: Request, exc: RequestValidationError):
     fields = [{"field": ".".join(map(str, e["loc"][1:])), "message": e["msg"]} for e in exc.errors()]
     return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": "Request validation failed", "request_id": getattr(request.state, "request_id", None), "details": {"fields": fields}}})
 
-
 @app.exception_handler(SecurityError)
-async def security_error_handler(request: Request, exc: SecurityError):
+async def security_error(request: Request, exc: SecurityError):
     status = 401 if exc.code == "unauthenticated" else 503 if exc.code == "emergency_stop" else 403
     return JSONResponse(status_code=status, content=error_payload(exc, getattr(request.state, "request_id", None)))
 
-
 @app.exception_handler(UniqueViolation)
-async def conflict_handler(request: Request, _: UniqueViolation):
+async def conflict_error(request: Request, _: UniqueViolation):
     return JSONResponse(status_code=409, content={"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
-
 @app.exception_handler(ValueError)
-async def value_error_handler(request: Request, exc: ValueError):
+async def value_error(request: Request, exc: ValueError):
     return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": str(exc), "request_id": getattr(request.state, "request_id", None), "details": {}}})
 
-
 @app.exception_handler(Exception)
-async def internal_error_handler(request: Request, _: Exception):
+async def internal_error(request: Request, _: Exception):
     return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": getattr(request.state, "request_id", None), "details": {}}})
-
 
 @app.get("/health", tags=["health"])
 def health():
     return {"status": "ok"}
 
-
 def public_user(row):
     created = row["created_at"].isoformat() if hasattr(row["created_at"], "isoformat") else row["created_at"]
     return {"id": str(row["id"]), "email": row["email"], "display_name": row["display_name"], "status": row["status"], "roles": list(row.get("roles", [])), "created_at": created}
-
 
 @app.post(settings.api_prefix + "/auth/register", response_model=TokenResponse, status_code=201, tags=["authentication"])
 def register(body: RegisterRequest, request: Request):
@@ -97,13 +85,11 @@ def register(body: RegisterRequest, request: Request):
     audit.record(action="auth.register", actor_user_id=str(user["id"]), resource_type="user", resource_id=str(user["id"]), request_id=request.state.request_id)
     return {"access_token": token, "user": public_user(user)}
 
-
 @app.post(settings.api_prefix + "/auth/login", response_model=TokenResponse, tags=["authentication"])
 def login(body: LoginRequest, request: Request):
     user, token = auth.login(str(body.email), body.password)
     audit.record(action="auth.login", actor_user_id=str(user["id"]), resource_type="user", resource_id=str(user["id"]), request_id=request.state.request_id)
     return {"access_token": token, "user": public_user(user)}
-
 
 @app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
 def logout(context: AuthContext = Depends(current_user), credentials: HTTPAuthorizationCredentials = Depends(bearer)):
@@ -111,14 +97,12 @@ def logout(context: AuthContext = Depends(current_user), credentials: HTTPAuthor
     audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return Response(status_code=204)
 
-
 @app.get(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def get_me(context: AuthContext = Depends(current_user)):
     user = users.by_id(context.user_id)
     if user is None:
         raise SecurityError("unauthenticated", "Authentication required")
     return public_user(user)
-
 
 @app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
 def update_me(body: UserUpdateRequest, request: Request, context: AuthContext = Depends(current_user)):
@@ -130,7 +114,6 @@ def update_me(body: UserUpdateRequest, request: Request, context: AuthContext = 
     audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id, request_id=request.state.request_id)
     return public_user(user)
 
-
 app.include_router(brain_router, prefix=settings.api_prefix, dependencies=[Depends(current_user)])
 source_allowlist = tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",") if x.strip())
 app.include_router(create_memory_router(db, current_user, source_allowlist=source_allowlist), prefix=settings.api_prefix)
@@ -138,12 +121,11 @@ workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
 if workspace:
     for name in ("filesystem.write", "browser.navigate", "computer.perform"):
         policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
-    agent_tools = ToolRegistry()
-    agent_service = build_agent(agent_tools, actions, workspace)
-    for tool in agent_tools.list():
+    registry = ToolRegistry()
+    agent_service = build_agent(registry, actions, workspace)
+    for tool in registry.list():
         if tool["sensitive"] and policies.get(f"agent.tool.{tool['name']}") is None:
-            raise RuntimeError(f"Sensitive agent tool lacks approval policy: {tool['name']}")
+            raise RuntimeError(f"Sensitive tool missing approval policy: {tool['name']}")
     app.include_router(create_agent_router(agent_service, current_user, approvals), prefix=settings.api_prefix)
-
 
 __all__ = ["app"]

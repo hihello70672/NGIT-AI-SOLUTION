@@ -10,9 +10,9 @@ This status reflects committed implementation in the reviewed `main` tree. Check
 
 ## Phase 2 — Authentication, security, API, users
 
-**Built/committed:** API configuration, transaction-local database caller context, authentication and user services, REST routes, schemas, server-derived authorization controls, approval controls, emergency stop, audit redaction, and React/TypeScript/Vite sign-in/registration and authenticated user-management flows. Security engines provide opaque expiring/revocable bearer tokens, allow-list role/ownership checks, restricted actions, distinct-approver expiring approvals bound to exact action/resource and consumed once, emergency-stop enforcement, immutable redacted audit snapshots, and validated environment-backed secret lookup. Regression coverage is present in `services/api/tests/test_security.py`.
+**Built/committed:** FastAPI lifespan/entry point, validated configuration, request correlation, error mapping, authentication and user services, validated REST routes, backend-enforced authorization, transaction-local database caller context, approval and emergency-stop controls, audit redaction, and React/TypeScript/Vite registration and authenticated profile flows. Opaque expiring/revocable bearer tokens and password verification are wired to PostgreSQL-backed services. API contract tests cover registration/login/profile/logout, request IDs, validation, conflict response, and protected Brain routes; security regression coverage lives in `services/api/tests/test_security.py`.
 
-**Runtime limits:** Tokens, approvals, emergency-stop state and audit events are process-local. Use a single worker until approved shared persistence/lifecycle replaces these primitives. Admin user listing is not implemented. Secret lookup uses environment configuration; production secret-manager integration remains open. Brain generation endpoints remain separate from authenticated caller authorization.
+**Runtime limits:** Tokens, approvals, emergency-stop state and audit events are process-local. Use a single worker until approved shared persistence/lifecycle replaces these primitives. Admin user listing is not implemented. Secret lookup uses environment configuration; production secret-manager integration remains open. Brain generation endpoints are authenticated at the API boundary.
 
 ## Phase 3 — NGIT Brain and private memory/knowledge services
 
@@ -28,7 +28,7 @@ This status reflects committed implementation in the reviewed `main` tree. Check
 
 ## Validation record
 
-Tests have not been run for this update. Checked-in tests are not evidence of passing execution. Database migration/RLS checks, Compose, API integration, external adapter behavior, and all test-suite outcomes remain unverified. Do not report checks as passing until run and record exact commands, environment, results, blockers, and retests.
+Tests and runtime checks were not run for this update; no passing result is claimed. Database migration/RLS checks, Compose, API integration, external adapter behavior, and all test-suite outcomes remain unverified. Do not report checks as passing until run and record exact commands, environment, results, blockers, and retests.
 
 ## Phase 1 database verification gaps
 
@@ -51,3 +51,7 @@ Vector persistence, durable task execution and external adapters are optional/op
 Not started.
 
 Tests and runtime checks were not run for this update; no passing result is claimed.
+
+## Phase 2 API integration follow-up
+
+The API entry point and contract tests were extended in this update to keep Brain routes behind bearer authentication. Existing test sources were reviewed, but test execution remains unverified.
