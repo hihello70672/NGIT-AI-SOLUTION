@@ -1,9 +1,7 @@
-# API tests
+# API and security tests
 
-From the repository root, install `services/api/requirements.txt`, then run:
+Run from the repository root with `PYTHONPATH=. python -m pytest services/api/tests`.
 
-```sh
-PYTHONPATH=. python -m pytest services/api/tests
-```
+The HTTP API tests replace the user repository with an in-memory fake and use disposable test pepper values set before importing the application. They exercise registration/login, token revocation, profile ownership, input validation, request correlation, and protected Brain routing. These tests do not validate PostgreSQL, migration/RLS behavior, multi-worker persistence, or deployment readiness. Run SQL checks separately using `services/api/db/tests/run.sh` against disposable PostgreSQL.
 
-The API/security unit tests do not require PostgreSQL. Database migrations and RLS behavior require disposable PostgreSQL and are tested separately with `services/api/db/tests/run.sh`. Tests are not claimed as passing unless actually executed. Security token, approval, audit, and emergency-stop state is process-local; this implementation is not suitable for multi-worker production without approved shared persistence.
+Test environment secrets are explicitly test-only and never production credentials.

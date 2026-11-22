@@ -10,7 +10,7 @@ from psycopg.errors import UniqueViolation
 from services.api.config import Settings
 from services.api.database import Database
 from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
-from services.api.security import SecurityError, create_default_security, error_payload, AuthContext
+from services.api.security import SecurityError, create_default_security, error_payload, AuthContext, Policy
 from services.api.services.users import UserService
 from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -58,9 +58,7 @@ app.include_router(create_memory_router(db, current_user, source_allowlist=sourc
 workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
 if workspace:
     for name in ("filesystem.write", "browser.navigate", "computer.perform"):
-        policies.register(__import__("services.api.security", fromlist=["Policy"]).Policy(
-            f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True
-        ))
+        policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
     app.include_router(create_agent_router(build_agent(ToolRegistry()), current_user, approvals, workspace), prefix=settings.api_prefix)
 
 
