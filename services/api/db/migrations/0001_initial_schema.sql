@@ -1,7 +1,7 @@
--- Phase 1 PostgreSQL foundation. PostgreSQL 16+. All objects isolated in ngit.
+-- PostgreSQL 16+ NGIT schema foundation. All objects reside in isolated schema ngit.
 CREATE SCHEMA IF NOT EXISTS ngit;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-SET search_path TO ngit, public;
+SET search_path TO ngit,public;
 CREATE TABLE IF NOT EXISTS users(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),email text NOT NULL UNIQUE,password_hash text NOT NULL,display_name text NOT NULL,status text NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended','deleted')),created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),CHECK(email=lower(email)),CHECK(length(trim(display_name))>0));
 CREATE TABLE IF NOT EXISTS roles(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL UNIQUE,description text NOT NULL DEFAULT '',created_at timestamptz NOT NULL DEFAULT now(),CHECK(name ~ '^[a-z][a-z0-9_]*$'));
 CREATE TABLE IF NOT EXISTS user_roles(user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,role_id uuid NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,granted_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(user_id,role_id));
