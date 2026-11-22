@@ -21,7 +21,6 @@ from typing import Any, Callable, Mapping
 
 class SecurityError(Exception):
     """Expected security rejection with a safe machine code."""
-
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code, self.message = code, message
@@ -44,7 +43,6 @@ class Policy:
 
 class SecretStore:
     """Environment-backed secret lookup; values are never logged."""
-
     def __init__(self, environ: Mapping[str, str] | None = None):
         self._environ = os.environ if environ is None else environ
 
@@ -59,13 +57,11 @@ class SecretStore:
 
 class Authenticator:
     """Opaque random bearer tokens; only keyed token digests are retained."""
-
     def __init__(self, pepper: str | None = None, *, clock: Callable[[], float] = time.time):
         self._pepper = pepper if pepper is not None else SecretStore().get("AUTH_TOKEN_PEPPER")
         if not isinstance(self._pepper, str) or len(self._pepper.encode()) < 32:
             raise ValueError("AUTH_TOKEN_PEPPER must be configured and at least 32 bytes")
-        self._clock = clock
-        self._lock = threading.RLock()
+        self._clock, self._lock = clock, threading.RLock()
         self._tokens: dict[str, tuple[AuthContext, float]] = {}
 
     def _digest(self, token: str) -> str:
@@ -76,9 +72,7 @@ class Authenticator:
             raise ValueError("invalid token issue parameters")
         if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or not 1 <= ttl_seconds <= 86400:
             raise ValueError("invalid token issue parameters")
-        if not isinstance(roles, (set, frozenset)) or any(
-            not isinstance(role, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", role) for role in roles
-        ):
+        if not isinstance(roles, (set, frozenset)) or any(not isinstance(role, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", role) for role in roles):
             raise ValueError("invalid token roles")
         token = secrets.token_urlsafe(32)
         context = AuthContext(user_id, frozenset(roles), secrets.token_urlsafe(12))
@@ -107,12 +101,9 @@ class Authenticator:
 
 class AuditLogger:
     """Thread-safe redacted audit sink with immutable event snapshots."""
-
     _forbidden = {"password", "token", "secret", "credential", "prompt", "authorization", "cookie", "apikey"}
-
     def __init__(self):
-        self._lock = threading.RLock()
-        self._events: list[dict[str, Any]] = []
+        self._lock, self._events = threading.RLock(), []
 
     @classmethod
     def _safe(cls, value: Any, depth: int = 0) -> Any:
@@ -132,9 +123,7 @@ class AuditLogger:
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, str):
-            if len(value) >= 32 and re.fullmatch(r"[A-Za-z0-9_./+=-]+", value):
-                return "[REDACTED]"
-            return value[:512]
+            return "[REDACTED]" if len(value) >= 32 and re.fullmatch(r"[A-Za-z0-9_./+=-]+", value) else value[:512]
         return type(value).__name__
 
     def record(self, *, action: str, actor_user_id: str | None = None, resource_type: str | None = None,
@@ -142,20 +131,18 @@ class AuditLogger:
                details: Mapping[str, Any] | None = None) -> dict[str, Any]:
         if not isinstance(action, str) or not action or len(action) > 128:
             raise ValueError("invalid audit action")
-        event = {"action": action, "actor_user_id": self._safe(actor_user_id),
-                 "resource_type": self._safe(resource_type), "resource_id": self._safe(resource_id),
-                 "request_id": self._safe(request_id), "outcome": self._safe(outcome)[:64],
-                 "occurred_at": datetime.now(timezone.utc).isoformat(), "details": self._safe(details or {})}
+        event = {"action": action, "actor_user_id": self._safe(actor_user_id), "resource_type": self._safe(resource_type),
+                 "resource_id": self._safe(resource_id), "request_id": self._safe(request_id),
+                 "outcome": self._safe(outcome)[:64], "occurred_at": datetime.now(timezone.utc).isoformat(),
+                 "details": self._safe(details or {})}
         with self._lock:
             self._events.append(copy.deepcopy(event))
         return copy.deepcopy(event)
 
     def events(self) -> tuple[Mapping[str, Any], ...]:
         def freeze(value):
-            if isinstance(value, dict):
-                return MappingProxyType({key: freeze(item) for key, item in value.items()})
-            if isinstance(value, list):
-                return tuple(freeze(item) for item in value)
+            if isinstance(value, dict): return MappingProxyType({key: freeze(item) for key, item in value.items()})
+            if isinstance(value, list): return tuple(freeze(item) for item in value)
             return value
         with self._lock:
             return tuple(freeze(copy.deepcopy(event)) for event in self._events)
@@ -163,11 +150,9 @@ class AuditLogger:
 
 class PolicyEngine:
     """Allow-list RBAC and ownership authorization; unknown actions deny."""
-
     def __init__(self, policies: Mapping[str, Policy] | None = None):
         self._policies: dict[str, Policy] = {}
-        for policy in (policies or {}).values():
-            self.register(policy)
+        for policy in (policies or {}).values(): self.register(policy)
 
     @staticmethod
     def _validate(policy: Policy) -> None:
@@ -175,30 +160,22 @@ class PolicyEngine:
             raise ValueError("invalid policy action")
         if not isinstance(policy.roles, frozenset) or any(not isinstance(role, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", role) for role in policy.roles):
             raise ValueError("invalid policy roles")
-        if not isinstance(policy.approval_required, bool) or not isinstance(policy.restricted, bool):
-            raise ValueError("invalid policy flags")
-        if policy.restricted and not policy.approval_required:
-            raise ValueError("restricted policies must require approval")
+        if not isinstance(policy.approval_required, bool) or not isinstance(policy.restricted, bool): raise ValueError("invalid policy flags")
+        if policy.restricted and not policy.approval_required: raise ValueError("restricted policies must require approval")
 
     def register(self, policy: Policy) -> None:
         self._validate(policy)
-        if policy.action in self._policies:
-            raise ValueError("policy action must be unique")
+        if policy.action in self._policies: raise ValueError("policy action must be unique")
         self._policies[policy.action] = policy
 
-    def get(self, action: str) -> Policy | None:
-        return self._policies.get(action)
+    def get(self, action: str) -> Policy | None: return self._policies.get(action)
 
     def authorize(self, context: AuthContext, action: str, *, owner_id: str | None = None) -> Policy:
-        if not isinstance(context, AuthContext) or not context.user_id:
-            raise SecurityError("unauthenticated", "Authentication required")
+        if not isinstance(context, AuthContext) or not context.user_id: raise SecurityError("unauthenticated", "Authentication required")
         policy = self._policies.get(action)
-        if policy is None:
-            raise SecurityError("forbidden", "Action is not permitted")
-        if owner_id is not None and owner_id != context.user_id and "admin" not in context.roles:
-            raise SecurityError("forbidden", "Resource access is not permitted")
-        if not policy.roles.intersection(context.roles):
-            raise SecurityError("forbidden", "Action is not permitted")
+        if policy is None: raise SecurityError("forbidden", "Action is not permitted")
+        if owner_id is not None and owner_id != context.user_id and "admin" not in context.roles: raise SecurityError("forbidden", "Resource access is not permitted")
+        if not policy.roles.intersection(context.roles): raise SecurityError("forbidden", "Action is not permitted")
         return policy
 
 
@@ -215,19 +192,14 @@ class Approval:
 
 class ApprovalEngine:
     """Bound, expiring approvals with RBAC, separation of duties and atomic use."""
-
     def __init__(self, *, clock: Callable[[], float] = time.time, policy_engine: PolicyEngine | None = None):
-        self._clock, self._lock, self._approvals = clock, threading.RLock(), {}
-        self._policy_engine = policy_engine
+        self._clock, self._lock, self._approvals, self._policy_engine = clock, threading.RLock(), {}, policy_engine
 
     def request(self, actor_user_id: str, action: str, resource_id: str, *, ttl_seconds: int = 600) -> Approval:
-        if not all(isinstance(item, str) and item and len(item) <= 256 for item in (actor_user_id, action, resource_id)):
-            raise ValueError("invalid approval request")
-        if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or not 1 <= ttl_seconds <= 3600:
-            raise ValueError("invalid approval request")
+        if not all(isinstance(item, str) and item and len(item) <= 256 for item in (actor_user_id, action, resource_id)): raise ValueError("invalid approval request")
+        if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or not 1 <= ttl_seconds <= 3600: raise ValueError("invalid approval request")
         item = Approval(secrets.token_urlsafe(18), actor_user_id, action, resource_id, self._clock() + ttl_seconds)
-        with self._lock:
-            self._approvals[item.approval_id] = item
+        with self._lock: self._approvals[item.approval_id] = item
         return copy.deepcopy(item)
 
     def get(self, approval_id: str) -> Approval | None:
@@ -237,16 +209,13 @@ class ApprovalEngine:
 
     def decide(self, approval_id: str, approver_user_id: str, *, approved: bool,
                approver_roles: frozenset[str] | set[str] | None = None) -> Approval:
-        if not isinstance(approved, bool) or not isinstance(approver_user_id, str) or not approver_user_id:
-            raise ValueError("invalid approval decision")
+        if not isinstance(approved, bool) or not isinstance(approver_user_id, str) or not approver_user_id: raise ValueError("invalid approval decision")
         if self._policy_engine is not None:
             self._policy_engine.authorize(AuthContext(approver_user_id, frozenset(approver_roles or ())), "agent.approval.decide")
         with self._lock:
             item = self._approvals.get(approval_id)
-            if item is None or item.expires_at <= self._clock() or item.status != "pending":
-                raise SecurityError("approval_invalid", "Approval is missing, expired, or already decided")
-            if approver_user_id == item.actor_user_id:
-                raise SecurityError("forbidden", "A different approver is required")
+            if item is None or item.expires_at <= self._clock() or item.status != "pending": raise SecurityError("approval_invalid", "Approval is missing, expired, or already decided")
+            if approver_user_id == item.actor_user_id: raise SecurityError("forbidden", "A different approver is required")
             item.status = "approved" if approved else "rejected"
             item.approver_user_id = approver_user_id
             return copy.deepcopy(item)
@@ -254,65 +223,45 @@ class ApprovalEngine:
     def consume(self, approval_id: str, *, actor_user_id: str, action: str, resource_id: str) -> bool:
         with self._lock:
             item = self._approvals.get(approval_id)
-            if not item or item.status != "approved" or item.expires_at <= self._clock():
-                return False
-            if (item.actor_user_id, item.action, item.resource_id) != (actor_user_id, action, resource_id):
-                return False
+            if not item or item.status != "approved" or item.expires_at <= self._clock(): return False
+            if (item.actor_user_id, item.action, item.resource_id) != (actor_user_id, action, resource_id): return False
             item.status = "consumed"
             return True
 
 
 class EmergencyStop:
-    def __init__(self, audit: AuditLogger):
-        self._audit, self._lock, self._stopped = audit, threading.RLock(), False
-
+    def __init__(self, audit: AuditLogger): self._audit, self._lock, self._stopped = audit, threading.RLock(), False
     @property
     def stopped(self) -> bool:
-        with self._lock:
-            return self._stopped
-
+        with self._lock: return self._stopped
     def engage(self, actor_user_id: str, reason: str) -> None:
-        if not isinstance(actor_user_id, str) or not actor_user_id or not isinstance(reason, str) or not reason or len(reason) > 256:
-            raise ValueError("actor and bounded reason are required")
-        with self._lock:
-            self._stopped = True
+        if not isinstance(actor_user_id, str) or not actor_user_id or not isinstance(reason, str) or not reason or len(reason) > 256: raise ValueError("actor and bounded reason are required")
+        with self._lock: self._stopped = True
         self._audit.record(action="emergency_stop.engaged", actor_user_id=actor_user_id, details={"reason": reason})
-
     def reset(self, actor_user_id: str) -> None:
-        if not isinstance(actor_user_id, str) or not actor_user_id:
-            raise ValueError("actor is required")
-        with self._lock:
-            self._stopped = False
+        if not isinstance(actor_user_id, str) or not actor_user_id: raise ValueError("actor is required")
+        with self._lock: self._stopped = False
         self._audit.record(action="emergency_stop.reset", actor_user_id=actor_user_id)
-
     def check(self) -> None:
-        if self.stopped:
-            raise SecurityError("emergency_stop", "Restricted actions are temporarily disabled")
+        if self.stopped: raise SecurityError("emergency_stop", "Restricted actions are temporarily disabled")
 
 
 class RestrictedActionManager:
     """Single-use approval gate, immediately before a protected side effect."""
-
     def __init__(self, policies: PolicyEngine, approvals: ApprovalEngine, stop: EmergencyStop, audit: AuditLogger):
         self._policies, self._approvals, self._stop, self._audit = policies, approvals, stop, audit
-
     def authorize(self, context: AuthContext, action: str, resource_id: str, *, owner_id: str | None = None,
                   approval_id: str | None = None, request_id: str | None = None) -> Policy:
         try:
             policy = self._policies.authorize(context, action, owner_id=owner_id)
-            if policy.restricted:
-                self._stop.check()
-            if policy.approval_required and not self._approvals.consume(
-                approval_id or "", actor_user_id=context.user_id, action=action, resource_id=resource_id
-            ):
+            if policy.restricted: self._stop.check()
+            if policy.approval_required and not self._approvals.consume(approval_id or "", actor_user_id=context.user_id, action=action, resource_id=resource_id):
                 raise SecurityError("approval_required", "A valid approval is required")
         except SecurityError as exc:
-            self._audit.record(action=action if isinstance(action, str) else "unknown",
-                               actor_user_id=getattr(context, "user_id", None), resource_id=resource_id,
-                               request_id=request_id, outcome="denied", details={"error_code": exc.code})
+            self._audit.record(action=action if isinstance(action, str) else "unknown", actor_user_id=getattr(context, "user_id", None),
+                               resource_id=resource_id, request_id=request_id, outcome="denied", details={"error_code": exc.code})
             raise
-        self._audit.record(action=action, actor_user_id=context.user_id, resource_id=resource_id,
-                           request_id=request_id, outcome="authorized")
+        self._audit.record(action=action, actor_user_id=context.user_id, resource_id=resource_id, request_id=request_id, outcome="authorized")
         return policy
 
 
@@ -321,7 +270,7 @@ def create_default_security():
     audit = AuditLogger()
     policies = PolicyEngine()
     policies.register(Policy("profile.read", frozenset({"user", "admin"})))
-    policies.register(Policy("admin.users.manage", frozenset({"admin"}), True, True))
+    policies.register(Policy("admin.users.manage", frozenset({"admin"}), approval_required=True, restricted=True))
     policies.register(Policy("agent.approval.decide", frozenset({"admin"})))
     policies.register(Policy("admin.approvals.decide", frozenset({"admin"})))
     approvals = ApprovalEngine(policy_engine=policies)
