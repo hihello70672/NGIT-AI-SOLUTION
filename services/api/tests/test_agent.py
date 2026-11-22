@@ -11,8 +11,7 @@ class AgentTests(unittest.TestCase):
         self.audit = AuditLogger()
         policies = PolicyEngine()
         for name in ("filesystem.write", "browser.navigate", "computer.perform"):
-            policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}),
-                                     approval_required=True, restricted=True))
+            policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
         self.approvals = ApprovalEngine()
         self.permissions = RestrictedActionManager(policies, self.approvals, EmergencyStop(self.audit), self.audit)
         self.context = AuthContext("alice", frozenset({"user"}))

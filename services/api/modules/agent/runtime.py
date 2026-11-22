@@ -1,8 +1,4 @@
-"""Deterministic Personal Agent planner and approval-gated tool execution.
-
-Tools are explicit capabilities; sensitive calls are authorized by the shared
-RestrictedActionManager before any handler can cause a side effect.
-"""
+"""Deterministic Personal Agent planner and approval-gated tool execution."""
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
@@ -85,8 +81,7 @@ class ToolRegistry:
 
 class BrowserInterface:
     """Adapter-based browser boundary; navigation is sensitive."""
-    def __init__(self, reader: Callable[[str], str] | None = None,
-                 navigator: Callable[[str], Any] | None = None) -> None:
+    def __init__(self, reader: Callable[[str], str] | None = None, navigator: Callable[[str], Any] | None = None) -> None:
         self.reader = reader or (lambda url: f"Browser adapter unavailable for {urlparse(url).netloc}")
         self.navigator = navigator
 
@@ -142,11 +137,11 @@ class FilesystemInterface:
             raise AgentError("invalid_arguments", "Text content is required and must be at most 1 MB")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-        verified = path.read_text(encoding="utf-8") == content
-        return ToolResult({"path": str(path.relative_to(self.root)), "bytes": len(content.encode("utf-8"))}, "File written", verified)
+        return ToolResult({"path": str(path.relative_to(self.root)), "bytes": len(content.encode("utf-8"))},
+                          "File written", path.read_text(encoding="utf-8") == content)
 
 class ComputerControlInterface:
-    """No shell or OS control is implicit; the adapter must be explicitly supplied."""
+    """No shell or OS control is implicit; explicit adapter only."""
     def __init__(self, adapter: Callable[[str, Mapping[str, Any]], Any] | None = None) -> None:
         self.adapter = adapter
 
@@ -201,6 +196,21 @@ class AgentService:
             self._records[record.task_id], self._plans[record.task_id] = record, plan
         return self.execute(context, record.task_id)
 
+    def _complete_step(self, record: TaskRecord, step: PlannedStep, index: int) -> bool:
+        try:
+            result = self.tools.get(step.tool_name).handler(step.arguments)
+            record.observations.append({"step": index, "tool_name": step.tool_name,
+                "observation": result.observation, "verified": result.verified})
+            if not result.verified:
+                raise AgentError("verification_failed", "Tool result could not be verified")
+            record.result = result.value
+            return True
+        except AgentError as exc:
+            record.state, record.error = "failed", exc.code
+        except Exception:
+            record.state, record.error = "failed", "tool_failed"
+        return False
+
     def execute(self, context: AuthContext, task_id: str, approval_id: str | None = None) -> TaskRecord:
         with self._lock:
             record, plan = self._records.get(task_id), self._plans.get(task_id)
@@ -215,8 +225,7 @@ class AgentService:
         try:
             for index, step in enumerate(plan.steps):
                 tool = self.tools.get(step.tool_name)
-                resource_id = f"{task_id}:{index}"
-                action = f"agent.tool.{tool.name}"
+                resource_id, action = f"{task_id}:{index}", f"agent.tool.{tool.name}"
                 if tool.sensitive:
                     try:
                         self.permissions.authorize(context, action, resource_id, approval_id=approval_id)
@@ -228,7 +237,8 @@ class AgentService:
                             return record
                         raise
                 result = tool.handler(step.arguments)
-                record.observations.append({"step": index, "tool_name": tool.name, "observation": result.observation, "verified": result.verified})
+                record.observations.append({"step": index, "tool_name": tool.name,
+                    "observation": result.observation, "verified": result.verified})
                 if not result.verified:
                     raise AgentError("verification_failed", "Tool result could not be verified")
                 results.append(result.value)
@@ -257,24 +267,16 @@ class AgentService:
         except SecurityError as exc:
             record.state, record.error, record.updated_at = "failed", exc.code, self._now()
             return record
-        # The shared one-time grant is consumed above, before resuming the side effect.
         with self._lock:
             record.observations = [o for o in record.observations if o.get("state") != "approval_required"]
             record.pending_approval_id, record.state = None, "running"
         if len(plan.steps) != 1 or index != 0:
             record.state, record.error, record.updated_at = "failed", "resume_not_supported", self._now()
             return record
-        try:
-            step = plan.steps[index]
-            result = self.tools.get(step.tool_name).handler(step.arguments)
-            record.observations.append({"step": index, "tool_name": step.tool_name, "observation": result.observation, "verified": result.verified})
-            if not result.verified:
-                raise AgentError("verification_failed", "Tool result could not be verified")
-            record.result, record.state, record.error = result.value, "succeeded", None
-        except AgentError as exc:
-            record.state, record.error = "failed", exc.code
-        except Exception:
-            record.state, record.error = "failed", "tool_failed"
+        # The shared grant was consumed before handler invocation. Do not call
+        # authorize again: that would reject a correctly consumed one-time grant.
+        if self._complete_step(record, plan.steps[index], index):
+            record.state, record.error = "succeeded", None
         record.updated_at = self._now()
         return record
 
