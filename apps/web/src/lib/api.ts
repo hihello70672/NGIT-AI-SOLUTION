@@ -1,6 +1,4 @@
-export interface User {
-  id: string; email: string; display_name: string; status: string; roles: string[]; created_at: string;
-}
+export interface User { id: string; email: string; display_name: string; status: string; roles: string[]; created_at: string }
 export interface TokenResponse { access_token: string; token_type?: string; user: User }
 interface ApiErrorPayload { error?: { code?: string; message?: string; request_id?: string } }
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
