@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import os
 
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str
@@ -18,7 +19,7 @@ class Settings:
             name = os.getenv("POSTGRES_DB", "ngit")
             user = os.getenv("POSTGRES_USER", "ngit")
             password = os.getenv("POSTGRES_PASSWORD", "")
-            url = f"postgresql://{user}:{password}@{host}:{port}/{name}"
+            from urllib.parse import quote
+            url = f"postgresql://{quote(user, safe='')}:{quote(password, safe='')}@{host}:{port}/{name}"
         origins = tuple(x.strip() for x in os.getenv("CORS_ORIGINS", "").split(",") if x.strip())
-        return cls(database_url=url, cors_origins=origins,
-                   database_schema=os.getenv("DATABASE_SCHEMA", "ngit"))
+        return cls(database_url=url, cors_origins=origins, database_schema=os.getenv("DATABASE_SCHEMA", "ngit"))

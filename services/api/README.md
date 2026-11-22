@@ -4,22 +4,27 @@ FastAPI identity API and modular services. Configuration is environment-backed; 
 
 ## Run locally
 
-From the repository root, install API requirements and start the server:
+From the repository root, install dependencies and start the server:
 
 ```sh
 python -m pip install -r services/api/requirements.txt
 PYTHONPATH=. uvicorn services.api.app:app --reload
 ```
 
-Apply SQL migrations separately as documented in `db/README.md`. The API expects its schema and reference seeds to exist. `/health` is a basic process health check and does not prove database readiness.
+Apply SQL migrations separately as documented in `db/README.md`. The API expects its schema and reference seeds to exist. `/health` is a process liveness check, not database readiness.
 
-## API and security
+## REST API
 
-FastAPI publishes OpenAPI at `/openapi.json` and Swagger UI at `/docs`. REST endpoints use `/api/v1`. Register and login return opaque bearer tokens; send `Authorization: Bearer <token>`. Tokens are random, held as keyed digests, expire, and can be revoked. User profile routes derive identity only from validated bearer credentials. Admin policy controls remain server-side.
+OpenAPI JSON is available at `/openapi.json`; Swagger UI at `/docs`. Versioned REST endpoints use `/api/v1`:
 
-`services/api/security.py` contains the shared authentication, default-deny RBAC/policy, approval, restricted-action, audit, emergency-stop, and environment secret-store primitives. Sensitive actions require a different approver, a live approval bound to actor/action/resource, and a non-engaged stop switch. Authorization decisions and denials are audited with sensitive-field filtering. These stores are process-local: use a single worker for this implementation; do not present it as durable or cross-worker production sessions. Secret values belong only in environment or an approved vault and never in source control or browser code.
+- `POST /auth/register` and `POST /auth/login` accept validated credentials and return an opaque bearer token and public user profile.
+- `POST /auth/logout` revokes the presented token.
+- `GET /users/me` and `PATCH /users/me` only access the identity derived from the validated bearer token.
+- Existing Brain endpoints are protected by a router-level auth guard. Memory and optional agent routes retain module contracts.
 
-No WebSocket is introduced. Existing APIs are request/response; shared protocol requires justification before streaming. Background task contract is synchronous/process-local in `services/tasks.py`; runner/durability remains undecided. External AI endpoints remain optional.
+Send `Authorization: Bearer <token>`. Tokens expire and are revocable. Passwords use scrypt with an environment-backed pepper. Admin authorization remains server-side. Security errors, validation failures, conflicts and unexpected errors use safe response envelopes; responses carry `X-Request-ID`.
+
+Token, approval and audit stores are process-local in this implementation. Run a single worker only; do not represent state as durable or cross-worker safe. A shared persistence adapter and durable task runner need approved design before production use. No WebSocket is exposed: current endpoints are request/response, and shared streaming authentication/delivery guarantees have not been decided. Background task interface is synchronous and in-process; see `services/api/services/tasks.py`. External AI endpoints remain optional.
 
 ## Tests
 
@@ -29,4 +34,4 @@ Run from repository root:
 PYTHONPATH=. python -m pytest services/api/tests
 ```
 
-HTTP API tests isolate user persistence. Run PostgreSQL migrations and RLS checks separately using `services/api/db/tests/run.sh` against a disposable database. No test is claimed as passed unless actually executed.
+HTTP tests substitute the user persistence boundary; database migrations/RLS require a disposable PostgreSQL instance and the documented database test script. No test result is implied unless executed.
