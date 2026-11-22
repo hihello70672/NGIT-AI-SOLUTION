@@ -10,9 +10,9 @@ This status reflects committed implementation in the reviewed `main` tree. Check
 
 ## Phase 2 — Authentication, security, API, users
 
-**Built/committed:** FastAPI lifespan/entry point, validated configuration, request correlation, error mapping, authentication and user services, validated REST routes, backend-enforced authorization, transaction-local database caller context, approval and emergency-stop controls, audit redaction, and React/TypeScript/Vite registration and authenticated profile flows. Opaque expiring/revocable bearer tokens and password verification are wired to PostgreSQL-backed services. API contract tests cover registration/login/profile/logout, request IDs, validation, conflict response, and protected Brain routes; security regression coverage lives in `services/api/tests/test_security.py`.
+**Built/committed:** FastAPI lifecycle/entry point, validated configuration, request correlation, safe errors, authentication and user services, validated REST routes/schemas, backend-enforced authorization, transaction-local database caller context, approval/emergency-stop controls, audit redaction, and React/TypeScript/Vite sign-in/registration and authenticated dashboard/profile/user-management flows. The web application consumes the implemented login, registration, logout, current-user, profile-update, and admin-user-list APIs through the existing shared API client. The interface includes responsive dark/green Inter design, accessible loading/error/empty/retry/authorization states, and UI regression tests in `apps/web/src/App.test.tsx`. Security engines provide opaque expiring/revocable bearer tokens, allow-list role/ownership checks, restricted actions, distinct-approver expiring approvals bound to exact action/resource and consumed once, emergency-stop enforcement, immutable redacted audit snapshots, and validated environment-backed secret lookup. Regression coverage is present in `services/api/tests/test_security.py` and frontend UI coverage is checked in.
 
-**Runtime limits:** Tokens, approvals, emergency-stop state and audit events are process-local. Use a single worker until approved shared persistence/lifecycle replaces these primitives. Admin user listing is not implemented. Secret lookup uses environment configuration; production secret-manager integration remains open. Brain generation endpoints are authenticated at the API boundary.
+**Runtime limits:** Tokens, approvals, emergency-stop state and audit events are process-local. Use a single worker until approved shared persistence/lifecycle replaces these primitives. Admin user listing is read-only; administrators are not given user creation, role editing, or account deletion through this UI. Secret lookup uses environment configuration; production secret-manager integration remains open. No direct browser-to-database connection exists. External AI APIs remain optional.
 
 ## Phase 3 — NGIT Brain and private memory/knowledge services
 
@@ -28,7 +28,7 @@ This status reflects committed implementation in the reviewed `main` tree. Check
 
 ## Validation record
 
-Tests and runtime checks were not run for this update; no passing result is claimed. Database migration/RLS checks, Compose, API integration, external adapter behavior, and all test-suite outcomes remain unverified. Do not report checks as passing until run and record exact commands, environment, results, blockers, and retests.
+Tests and runtime checks were not run for this update; no passing result is claimed. Database migration/RLS checks, Compose, API integration, browser behavior, frontend unit/build checks, external adapter behavior, and all test-suite outcomes remain unverified. Do not report checks as passing until run and record exact commands, environment, results, blockers, and retests.
 
 ## Phase 1 database verification gaps
 
@@ -38,9 +38,13 @@ Tests and runtime checks were not run for this update; no passing result is clai
 - Role-assignment policies are intentionally privileged service operations, not end-user self-service grants.
 - Migration/runtime validation remains pending; no SQL execution is claimed.
 
+## Phase 2 implementation boundaries
+
+The browser consumes the documented FastAPI routes through `apps/web/src/lib/api.ts`. Bearer tokens are currently stored in local storage to match the API's token contract; browser storage is not an authorization boundary, and server-side authorization remains authoritative. Frontend UI tests are source coverage only; their execution is not claimed. The backend admin-user listing route is read-only and does not implement account or role mutation.
+
 ## Phase 2 security implementation boundaries
 
-Security engines are implemented in `services/api/security.py`, with regression coverage in `services/api/tests/test_security.py`. Their token, approval, stop and audit state is process-local, not durable/shared across workers. Environment-backed `SecretStore` is a lookup boundary, not production secret-manager integration. API initialization requires `AUTH_TOKEN_PEPPER` and `PASSWORD_PEPPER`; `.env.example` documents non-secret replacement instructions. Keep deployment single-worker until shared state and its lifecycle are designed and validated.
+Security engines are implemented in `services/api/security.py`, with regression coverage in `services/api/tests/test_security.py`. Their token, approval, stop and audit state is process-local, not durable/shared across workers. Environment-backed `SecretStore` is a lookup boundary, not production secret-manager integration. API initialization requires `AUTH_TOKEN_PEPPER` and `PASSWORD_PEPPER`, configured with at least 32 bytes; `.env.example` documents non-secret replacement instructions. Keep deployment single-worker until shared state and its lifecycle are designed and validated.
 
 ## Phase 3 / Phase 4 validation boundaries
 
@@ -52,8 +56,3 @@ Not started.
 
 Tests and runtime checks were not run for this update; no passing result is claimed.
 
-## Phase 2 API integration follow-up
-
-The API entry point, auth service, configuration, test harness and API guide were extended to consistently use the committed security and persistence interfaces. Brain REST routes are protected by bearer authentication; no WebSocket route is added because current contracts are request/response and the shared protocol leaves streaming auth and delivery semantics open. Existing test sources were reviewed, but test execution remains unverified.
-
-Commits: `050783743500a80416220d98c23e854b6caf5e80`, `76340025c08cb41b3971a5f32db8b35d2b83d517`, `f6ec5773c1db469b9f6bc0c81e6e0b36551d1416`.
