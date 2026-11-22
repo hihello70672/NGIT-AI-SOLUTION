@@ -9,7 +9,7 @@ from psycopg.errors import UniqueViolation
 from services.api.config import Settings
 from services.api.database import Database
 from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
-from services.api.security import SecurityError, create_default_security, error_payload, Policy
+from services.api.security import SecurityError, create_default_security, error_payload, Policy, AuthContext
 from services.api.services.users import UserService
 from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -34,13 +34,36 @@ async def lifespan(_: FastAPI):
         db.close()
 
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
-app.include_router(brain_router, prefix=settings.api_prefix)
 
 
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> AuthContext:
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
-    return auth.authenticate(credentials.credentials)
+    context = auth.authenticate(credentials.credentials)
+    audit.record(action="auth.authenticated", actor_user_id=context.user_id, outcome="success")
+    return context
+
+
+def authenticated_brain(request: Request) -> AuthContext:
+    """Authenticate Brain callers without changing its established router contract."""
+    authorization = request.headers.get("Authorization", "")
+    scheme, separator, token = authorization.partition(" ")
+    if not separator or scheme.lower() != "bearer" or not token:
+        raise SecurityError("unauthenticated", "Authentication required")
+    return current_user_from_token(token)
+
+
+def current_user_from_token(token: str) -> AuthContext:
+    context = auth.authenticate(token)
+    audit.record(action="auth.authenticated", actor_user_id=context.user_id, outcome="success")
+    return context
+
+# The Brain module's existing routes accept an injected dependency per endpoint.
+# Guard them at the router boundary and retain the existing endpoint schemas.
+from fastapi import APIRouter
+brain_guarded_router = APIRouter(dependencies=[Depends(authenticated_brain)])
+brain_guarded_router.include_router(brain_router)
+app.include_router(brain_guarded_router, prefix=settings.api_prefix)
 
 source_allowlist = tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",") if x.strip())
 app.include_router(create_memory_router(db, current_user, source_allowlist=source_allowlist), prefix=settings.api_prefix)
@@ -87,28 +110,30 @@ def health():
 @app.post(settings.api_prefix + "/auth/register", response_model=TokenResponse, status_code=201, tags=["authentication"])
 def register(body: RegisterRequest):
     user, token = auth.register(str(body.email), body.password, body.display_name)
+    audit.record(action="auth.register", actor_user_id=str(user["id"]), resource_type="user", resource_id=str(user["id"]))
     return {"access_token": token, "user": public_user(user)}
 
 @app.post(settings.api_prefix + "/auth/login", response_model=TokenResponse, tags=["authentication"])
 def login(body: LoginRequest):
     user, token = auth.login(str(body.email), body.password)
+    audit.record(action="auth.login", actor_user_id=str(user["id"]), resource_type="user", resource_id=str(user["id"]))
     return {"access_token": token, "user": public_user(user)}
 
 @app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
-def logout(context=Depends(current_user), credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+def logout(context: AuthContext = Depends(current_user), credentials: HTTPAuthorizationCredentials = Depends(bearer)):
     authenticator.revoke(credentials.credentials)
     audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
     return Response(status_code=204)
 
 @app.get(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
-def get_me(context=Depends(current_user)):
+def get_me(context: AuthContext = Depends(current_user)):
     user = users.by_id(context.user_id)
     if user is None:
         raise SecurityError("unauthenticated", "Authentication required")
     return public_user(user)
 
 @app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
-def update_me(body: UserUpdateRequest, context=Depends(current_user)):
+def update_me(body: UserUpdateRequest, context: AuthContext = Depends(current_user)):
     if body.display_name is None:
         raise ValueError("at least one update field is required")
     user = users.update_display_name(context.user_id, body.display_name)
