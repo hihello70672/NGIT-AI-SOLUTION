@@ -1,5 +1,7 @@
 # Local container infrastructure
 
-The repository-root `compose.yaml` currently defines PostgreSQL for local development, with a persistent named volume and readiness health check. Start via `docker compose up -d db` and stop via `docker compose down`.
+The repository-root `compose.yaml` currently defines PostgreSQL for local development, with a persistent named volume and readiness health check. Start with `docker compose up -d db`; inspect with `docker compose ps`; stop with `docker compose down`. Add `-v` only when intentionally deleting the named database volume.
 
-No API or web container is defined yet because those applications and their tooling have not been selected or implemented. Add services only alongside working application deliverables. Local example credentials are not suitable for production.
+The Compose file does not define API or web containers. Add application services only alongside working application/container deliverables and verified commands; do not imply they exist or are validated. Copy `.env.example` to `.env` for local configuration, use unique credentials outside the example, and never commit `.env` or expose the development database publicly. Compose lifecycle and database behavior still require runtime validation.
+
+See the root [README](../../README.md), [API setup](../../services/api/README.md), and [database check instructions](../../services/api/db/tests/README.md).
