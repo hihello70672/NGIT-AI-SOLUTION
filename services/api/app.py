@@ -36,18 +36,379 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
 app.include_router(brain_router, prefix=settings.api_prefix)
 
-# Dependencies derive the caller exclusively from a validated bearer token.
 def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
     if credentials is None:
         raise SecurityError("unauthenticated", "Authentication required")
     return auth.authenticate(credentials.credentials)
 
-app.include_router(create_memory_router(db, current_user), prefix=settings.api_prefix)
-workspace = os.environ.get("NGIT_AGENT_WORKSPACE", "").strip()
+app.include_router(create_memory_router(db, current_user, source_allowlist=tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",") if x.strip())), prefix=settings.api_prefix)
+workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
 if workspace:
     for name in ("filesystem.write", "browser.navigate", "computer.perform"):
         policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
-    app.include_router(create_agent_router(build_agent(ToolRegistry(), actions, workspace), current_user, approvals), prefix=settings.api_prefix)
+    app.include_router(create_agent_router(build_agent(ToolRegistry()), current_user, approvals, workspace), prefix=settings.api_prefix)
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    supplied = request.headers.get("X-Request-ID", "")
+    request.state.request_id = supplied[:128] if supplied and len(supplied) <= 128 else str(uuid4())
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    return response
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    fields = [{"field": ".".join(map(str, e["loc"][1:])), "message": e["msg"]} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": "Request validation failed", "request_id": getattr(request.state, "request_id", None), "details": {"fields": fields}}})
+
+@app.exception_handler(SecurityError)
+async def security_error_handler(request: Request, exc: SecurityError):
+    return JSONResponse(status_code=401 if exc.code == "unauthenticated" else 403, content=error_payload(exc, getattr(request.state, "request_id", None)))
+
+@app.exception_handler(UniqueViolation)
+async def conflict_handler(request: Request, _: UniqueViolation):
+    return JSONResponse(status_code=409, content={"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": getattr(request.state, "request_id", None), "details": {}}})
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": str(exc), "request_id": getattr(request.state, "request_id", None), "details": {}}})
+
+@app.exception_handler(Exception)
+async def internal_error_handler(request: Request, _: Exception):
+    return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": getattr(request.state, "request_id", None), "details": {}}})
+
+@app.get("/health", tags=["health"])
+def health():
+    return {"status": "ok"}
+
+@app.post(settings.api_prefix + "/auth/register", response_model=TokenResponse, status_code=201, tags=["authentication"])
+def register(body: RegisterRequest):
+    user, token = auth.register(str(body.email), body.password, body.display_name)
+    return {"access_token": token, "user": public_user(user)}
+
+@app.post(settings.api_prefix + "/auth/login", response_model=TokenResponse, tags=["authentication"])
+def login(body: LoginRequest):
+    user, token = auth.login(str(body.email), body.password)
+    return {"access_token": token, "user": public_user(user)}
+
+@app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
+def logout(context=Depends(current_user), credentials=Depends(bearer)):
+    authenticator.revoke(credentials.credentials)
+    audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
+    return Response(status_code=204)
+
+@app.get(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
+def get_me(context=Depends(current_user)):
+    user = users.by_id(context.user_id)
+    if user is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    return public_user(user)
+
+@app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
+def update_me(body: UserUpdateRequest, context=Depends(current_user)):
+    if body.display_name is None:
+        raise ValueError("at least one update field is required")
+    user = users.update_display_name(context.user_id, body.display_name)
+    if user is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
+    return public_user(user)
+
+def public_user(row):
+    created = row["created_at"]
+    if hasattr(created, "isoformat"):
+        created = created.isoformat()
+    return {"id": str(row["id"]), "email": row["email"], "display_name": row["display_name"], "status": row["status"], "roles": list(row.get("roles", [])), "created_at": created}
+
+# Keep framework response types importable for downstream integrations.
+from fastapi import Response
+from fastapi.responses import JSONResponse
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from services.api.security import SecurityError
+from psycopg.errors import UniqueViolation
+from services.api.security import error_payload
+from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials
+from uuid import uuid4
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from services.api.config import Settings
+from services.api.database import Database
+from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
+from services.api.security import create_default_security, Policy
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+from fastapi.security import HTTPBearer
+from psycopg.errors import UniqueViolation
+from fastapi.responses import JSONResponse
+from fastapi import Response
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from services.api.security import SecurityError, error_payload, Policy
+from fastapi import Depends
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from uuid import uuid4
+from services.api.database import Database
+from services.api.config import Settings
+from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
+from services.api.security import create_default_security
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+from fastapi import Depends
+from fastapi import Response
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi import Request
+from psycopg.errors import UniqueViolation
+from services.api.security import SecurityError, error_payload, Policy
+from services.api.modules.memory.api import create_router as create_memory_router
+from services.api.database import Database
+from services.api.config import Settings
+from services.api.security import create_default_security
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from contextlib import asynccontextmanager
+from uuid import uuid4
+import os
+from fastapi import FastAPI, Request, Response, Depends
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from psycopg.errors import UniqueViolation
+from services.api.config import Settings
+from services.api.database import Database
+from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
+from services.api.security import SecurityError, create_default_security, error_payload, Policy
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.memory.api import create_router as create_memory_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+
+settings = Settings.from_env()
+db = Database(settings.database_url, settings.database_schema)
+authenticator, policies, approvals, audit, emergency, actions = create_default_security()
+users = UserService(db)
+auth = AuthService(users, authenticator)
+bearer = HTTPBearer(auto_error=False)
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    db.open()
+    try:
+        yield
+    finally:
+        db.close()
+
+app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
+app.include_router(brain_router, prefix=settings.api_prefix)
+
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    if credentials is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    return auth.authenticate(credentials.credentials)
+
+app.include_router(create_memory_router(db, current_user, source_allowlist=tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",") if x.strip())), prefix=settings.api_prefix)
+workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
+if workspace:
+    for name in ("filesystem.write", "browser.navigate", "computer.perform"):
+        policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
+    app.include_router(create_agent_router(build_agent(ToolRegistry()), current_user, approvals, workspace), prefix=settings.api_prefix)
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    supplied = request.headers.get("X-Request-ID", "")
+    request.state.request_id = supplied[:128] if supplied and len(supplied) <= 128 else str(uuid4())
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    return response
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    fields = [{"field": ".".join(map(str, e["loc"][1:])), "message": e["msg"]} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": "Request validation failed", "request_id": getattr(request.state, "request_id", None), "details": {"fields": fields}}})
+
+@app.exception_handler(SecurityError)
+async def security_error_handler(request: Request, exc: SecurityError):
+    return JSONResponse(status_code=401 if exc.code == "unauthenticated" else 403, content=error_payload(exc, getattr(request.state, "request_id", None)))
+
+@app.exception_handler(UniqueViolation)
+async def conflict_handler(request: Request, _: UniqueViolation):
+    return JSONResponse(status_code=409, content={"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": getattr(request.state, "request_id", None), "details": {}}})
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": str(exc), "request_id": getattr(request.state, "request_id", None), "details": {}}})
+
+@app.exception_handler(Exception)
+async def internal_error_handler(request: Request, _: Exception):
+    return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": getattr(request.state, "request_id", None), "details": {}}})
+
+@app.get("/health", tags=["health"])
+def health():
+    return {"status": "ok"}
+
+@app.post(settings.api_prefix + "/auth/register", response_model=TokenResponse, status_code=201, tags=["authentication"])
+def register(body: RegisterRequest):
+    user, token = auth.register(str(body.email), body.password, body.display_name)
+    return {"access_token": token, "user": public_user(user)}
+
+@app.post(settings.api_prefix + "/auth/login", response_model=TokenResponse, tags=["authentication"])
+def login(body: LoginRequest):
+    user, token = auth.login(str(body.email), body.password)
+    return {"access_token": token, "user": public_user(user)}
+
+@app.post(settings.api_prefix + "/auth/logout", status_code=204, tags=["authentication"])
+def logout(context=Depends(current_user), credentials=Depends(bearer)):
+    authenticator.revoke(credentials.credentials)
+    audit.record(action="auth.logout", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
+    return Response(status_code=204)
+
+@app.get(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
+def get_me(context=Depends(current_user)):
+    user = users.by_id(context.user_id)
+    if user is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    return public_user(user)
+
+@app.patch(settings.api_prefix + "/users/me", response_model=UserResponse, tags=["users"])
+def update_me(body: UserUpdateRequest, context=Depends(current_user)):
+    if body.display_name is None:
+        raise ValueError("at least one update field is required")
+    user = users.update_display_name(context.user_id, body.display_name)
+    if user is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    audit.record(action="user.profile.updated", actor_user_id=context.user_id, resource_type="user", resource_id=context.user_id)
+    return public_user(user)
+
+def public_user(row):
+    created = row["created_at"]
+    if hasattr(created, "isoformat"):
+        created = created.isoformat()
+    return {"id": str(row["id"]), "email": row["email"], "display_name": row["display_name"], "status": row["status"], "roles": list(row.get("roles", [])), "created_at": created}
+
+# Keep framework response types importable for downstream integrations.
+from fastapi import Response
+from fastapi.responses import JSONResponse
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from services.api.security import SecurityError
+from psycopg.errors import UniqueViolation
+from services.api.security import error_payload
+from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials
+from uuid import uuid4
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from services.api.config import Settings
+from services.api.database import Database
+from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
+from services.api.security import create_default_security, Policy
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+from fastapi.security import HTTPBearer
+from psycopg.errors import UniqueViolation
+from fastapi.responses import JSONResponse
+from fastapi import Response
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from services.api.security import SecurityError, error_payload, Policy
+from fastapi import Depends
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from uuid import uuid4
+from services.api.database import Database
+from services.api.config import Settings
+from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
+from services.api.security import create_default_security
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+from fastapi import Depends
+from fastapi import Response
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi import Request
+from psycopg.errors import UniqueViolation
+from services.api.security import SecurityError, error_payload, Policy
+from services.api.modules.memory.api import create_router as create_memory_router
+from services.api.database import Database
+from services.api.config import Settings
+from services.api.security import create_default_security
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from contextlib import asynccontextmanager
+from uuid import uuid4
+import os
+from fastapi import FastAPI, Request, Response, Depends
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from psycopg.errors import UniqueViolation
+from services.api.config import Settings
+from services.api.database import Database
+from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
+from services.api.security import SecurityError, create_default_security, error_payload, Policy
+from services.api.services.users import UserService
+from services.api.services.auth import AuthService
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from services.api.modules.brain.api import router as brain_router
+from services.api.modules.memory.api import create_router as create_memory_router
+from services.api.modules.agent.api import create_router as create_agent_router
+from services.api.modules.agent.runtime import ToolRegistry, build_agent
+
+settings = Settings.from_env()
+db = Database(settings.database_url, settings.database_schema)
+authenticator, policies, approvals, audit, emergency, actions = create_default_security()
+users = UserService(db)
+auth = AuthService(users, authenticator)
+bearer = HTTPBearer(auto_error=False)
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    db.open()
+    try:
+        yield
+    finally:
+        db.close()
+
+app = FastAPI(title="NGIT API", version="1.0.0", lifespan=lifespan)
+app.include_router(brain_router, prefix=settings.api_prefix)
+
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)):
+    if credentials is None:
+        raise SecurityError("unauthenticated", "Authentication required")
+    return auth.authenticate(credentials.credentials)
+
+app.include_router(create_memory_router(db, current_user, source_allowlist=tuple(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST", "").split(",") if x.strip())), prefix=settings.api_prefix)
+workspace = os.getenv("NGIT_AGENT_WORKSPACE", "").strip()
+if workspace:
+    for name in ("filesystem.write", "browser.navigate", "computer.perform"):
+        policies.register(Policy(f"agent.tool.{name}", frozenset({"user", "admin"}), approval_required=True, restricted=True))
+    app.include_router(create_agent_router(build_agent(ToolRegistry()), current_user, approvals, workspace), prefix=settings.api_prefix)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
