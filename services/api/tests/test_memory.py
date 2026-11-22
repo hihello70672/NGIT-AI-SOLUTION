@@ -68,22 +68,18 @@ def test_invalid_owner_and_limits_are_rejected():
 
 def test_lexical_search_returns_ranked_owner_memory():
     class Store:
-        def list_memories(self, *args):
-            return [{"id": "1", "user_id": OWNER, "kind": "fact", "content": "cats like fish", "metadata": {}}]
+        def list_memories(self, *args): return [{"id": "1", "user_id": OWNER, "kind": "fact", "content": "cats like fish", "metadata": {}}]
     hits = RetrievalService(Store()).search(OWNER, "cats fish")
     assert hits[0]["id"] == "1" and hits[0]["source"] == "memory" and hits[0]["score"] > 0
 
 
 def test_vector_retrieval_discards_foreign_and_invalid_provider_hits():
     class Store:
-        def list_memories(self, *args):
-            return [{"id": "mine", "user_id": OWNER, "kind": "fact", "content": "my private memory"}]
+        def list_memories(self, *args): return [{"id": "mine", "user_id": OWNER, "kind": "fact", "content": "my private memory"}]
     class Vector:
         def search(self, **kwargs):
             assert kwargs["user_id"] == OWNER
-            return [{"id": "mine", "user_id": OWNER, "score": .9},
-                    {"id": "foreign", "user_id": OTHER, "score": 1.0},
-                    {"id": "mine", "user_id": OWNER, "score": math.nan}]
+            return [{"id": "mine", "user_id": OWNER, "score": .9}, {"id": "foreign", "user_id": OTHER, "score": 1.0}, {"id": "mine", "user_id": OWNER, "score": math.nan}]
     hits = RetrievalService(Store(), Vector()).search(OWNER, "private")
     assert [item["id"] for item in hits] == ["mine"] and hits[0]["source"] == "vector"
 
@@ -121,8 +117,7 @@ def test_knowledge_ingestion_chunks_with_source_provenance():
     assert len(chunks) > 1 and len(store.saved) == len(chunks)
     assert all(args[2] == "summary" and args[-1]["verified_source"] for args in store.saved)
     assert all(args[-1]["source"] == "https://docs.example.org" for args in store.saved)
-    with pytest.raises(PermissionError):
-        service.ingest_verified(OWNER, "https://evil.test", "private", ["https://docs.example.org"])
+    with pytest.raises(PermissionError): service.ingest_verified(OWNER, "https://evil.test", "private", ["https://docs.example.org"])
 
 
 def test_optional_vector_search_factory_does_not_require_provider():

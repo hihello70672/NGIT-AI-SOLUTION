@@ -7,7 +7,7 @@ from uuid import UUID
 
 
 class EmbeddingVectorSearch:
-    """Rank candidates only after requesting the backing provider for owner-scoped rows."""
+    """Rank candidates returned by a caller-provided, owner-scoped loader."""
 
     def __init__(self, embed: Callable[[str], list[float]], load_candidates: Callable[..., list[dict[str, Any]]]):
         self.embed, self.load_candidates = embed, load_candidates
@@ -18,7 +18,7 @@ class EmbeddingVectorSearch:
             owner = str(UUID(user_id))
         except (ValueError, TypeError, AttributeError) as exc:
             raise ValueError("user_id must be a valid UUID") from exc
-        if not isinstance(query, str) or not query.strip() or not 1 <= limit <= 100:
+        if not isinstance(query, str) or not query.strip() or not isinstance(limit, int) or not 1 <= limit <= 100:
             raise ValueError("invalid vector search query or limit")
         try:
             query_vector = [float(value) for value in self.embed(query)]
@@ -45,6 +45,8 @@ class EmbeddingVectorSearch:
                 if not norm:
                     continue
                 score = sum(a * b for a, b in zip(query_vector, vector)) / (qnorm * norm)
+                if not math.isfinite(score):
+                    continue
             except (KeyError, TypeError, ValueError, OverflowError):
                 continue
             ranked.append(({**item, "score": score}, score))
