@@ -1,0 +1,289 @@
+"""Shared security primitives for NGIT's modular API.
+
+Tokens are opaque, random bearer credentials. Only keyed digests are persisted;
+production deployments must supply a strong AUTH_TOKEN_PEPPER and use HTTPS.
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import threading
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Callable, Mapping
+
+
+class SecurityError(Exception):
+    """Expected security rejection with a stable machine-readable code."""
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+@dataclass(frozen=True)
+class AuthContext:
+    user_id: str
+    roles: frozenset[str] = frozenset()
+    token_id: str = ""
+
+
+@dataclass(frozen=True)
+class Policy:
+    action: str
+    roles: frozenset[str]
+    approval_required: bool = False
+    restricted: bool = False
+
+
+class SecretStore:
+    """Small secret-provider interface backed by environment configuration.
+
+    Secret values are retrieved by name and never returned in repr or logs.
+    A deployment-specific vault adapter can implement the same get contract.
+    """
+    def __init__(self, environ: Mapping[str, str] | None = None):
+        self._environ = os.environ if environ is None else environ
+
+    def get(self, name: str) -> str | None:
+        if not name or not name.replace("_", "").isalnum():
+            raise ValueError("invalid secret name")
+        return self._environ.get(name)
+
+
+class Authenticator:
+    """Opaque bearer token issue/validation and revocation."""
+    def __init__(self, pepper: str | None = None, *, clock: Callable[[], float] = time.time):
+        self._pepper = (pepper if pepper is not None else SecretStore().get("AUTH_TOKEN_PEPPER"))
+        if not self._pepper:
+            raise ValueError("AUTH_TOKEN_PEPPER must be configured")
+        if len(self._pepper.encode()) < 32:
+            raise ValueError("AUTH_TOKEN_PEPPER must be at least 32 bytes")
+        self._clock = clock
+        self._lock = threading.RLock()
+        self._tokens: dict[str, tuple[AuthContext, float]] = {}
+
+    def _digest(self, token: str) -> str:
+        return hmac.new(self._pepper.encode(), token.encode(), hashlib.sha256).hexdigest()
+
+    def issue(self, user_id: str, roles: set[str] | frozenset[str] = frozenset(), *, ttl_seconds: int = 3600) -> str:
+        if not user_id or ttl_seconds < 1 or ttl_seconds > 86400:
+            raise ValueError("invalid token issue parameters")
+        token = secrets.token_urlsafe(32)
+        token_id = secrets.token_urlsafe(12)
+        context = AuthContext(user_id=user_id, roles=frozenset(roles), token_id=token_id)
+        with self._lock:
+            self._tokens[self._digest(token)] = (context, self._clock() + ttl_seconds)
+        return token
+
+    def authenticate(self, token: str | None) -> AuthContext:
+        if not isinstance(token, str) or not token or len(token) > 512:
+            raise SecurityError("unauthenticated", "Authentication required")
+        digest = self._digest(token)
+        with self._lock:
+            item = self._tokens.get(digest)
+            if item is None or item[1] <= self._clock():
+                self._tokens.pop(digest, None)
+                raise SecurityError("unauthenticated", "Authentication required")
+            return item[0]
+
+    def revoke(self, token: str) -> None:
+        with self._lock:
+            self._tokens.pop(self._digest(token), None)
+
+
+class AuditLogger:
+    """Thread-safe structured audit sink; rejects sensitive fields by name."""
+    _forbidden = {"password", "token", "secret", "credential", "prompt", "authorization"}
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._events: list[dict[str, Any]] = []
+
+    @classmethod
+    def _safe(cls, value: Any) -> Any:
+        if isinstance(value, Mapping):
+            result = {}
+            for key, item in value.items():
+                key_text = str(key).lower()
+                if any(word in key_text for word in cls._forbidden):
+                    continue
+                result[str(key)] = cls._safe(item)
+            return result
+        if isinstance(value, (list, tuple)):
+            return [cls._safe(item) for item in value]
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value if not isinstance(value, str) or len(value) <= 512 else value[:512]
+        return str(type(value).__name__)
+
+    def record(self, *, action: str, actor_user_id: str | None = None,
+               resource_type: str | None = None, resource_id: str | None = None,
+               request_id: str | None = None, outcome: str = "success",
+               details: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        if not action or len(action) > 128:
+            raise ValueError("invalid audit action")
+        event = {"action": action, "actor_user_id": actor_user_id,
+                 "resource_type": resource_type, "resource_id": resource_id,
+                 "request_id": request_id, "outcome": outcome,
+                 "occurred_at": datetime.now(timezone.utc).isoformat(),
+                 "details": self._safe(details or {})}
+        with self._lock:
+            self._events.append(event)
+        return dict(event)
+
+    def events(self) -> tuple[dict[str, Any], ...]:
+        with self._lock:
+            return tuple(dict(event) for event in self._events)
+
+
+class PolicyEngine:
+    """Explicit default-deny RBAC and resource-owner policy evaluation."""
+    def __init__(self, policies: Mapping[str, Policy] | None = None):
+        self._policies = dict(policies or {})
+
+    def register(self, policy: Policy) -> None:
+        if not policy.action or policy.action in self._policies:
+            raise ValueError("policy action must be unique and non-empty")
+        self._policies[policy.action] = policy
+
+    def authorize(self, context: AuthContext, action: str, *, owner_id: str | None = None) -> Policy:
+        policy = self._policies.get(action)
+        if policy is None:
+            raise SecurityError("forbidden", "Action is not permitted")
+        if owner_id is not None and owner_id != context.user_id and "admin" not in context.roles:
+            raise SecurityError("forbidden", "Resource access is not permitted")
+        if not policy.roles.intersection(context.roles):
+            raise SecurityError("forbidden", "Action is not permitted")
+        return policy
+
+
+@dataclass
+class Approval:
+    approval_id: str
+    actor_user_id: str
+    action: str
+    resource_id: str
+    expires_at: float
+    status: str = "pending"
+    approver_user_id: str | None = None
+
+
+class ApprovalEngine:
+    """One-time, expiring, distinct-approver authorization grants."""
+    def __init__(self, *, clock: Callable[[], float] = time.time):
+        self._clock = clock
+        self._lock = threading.RLock()
+        self._approvals: dict[str, Approval] = {}
+
+    def request(self, actor_user_id: str, action: str, resource_id: str, *, ttl_seconds: int = 600) -> Approval:
+        if not actor_user_id or not action or not resource_id or not 1 <= ttl_seconds <= 3600:
+            raise ValueError("invalid approval request")
+        approval = Approval(secrets.token_urlsafe(18), actor_user_id, action, resource_id,
+                            self._clock() + ttl_seconds)
+        with self._lock:
+            self._approvals[approval.approval_id] = approval
+        return approval
+
+    def decide(self, approval_id: str, approver_user_id: str, *, approved: bool) -> Approval:
+        with self._lock:
+            approval = self._approvals.get(approval_id)
+            if approval is None or approval.expires_at <= self._clock() or approval.status != "pending":
+                raise SecurityError("approval_invalid", "Approval is missing, expired, or already decided")
+            if not approver_user_id or approver_user_id == approval.actor_user_id:
+                raise SecurityError("forbidden", "A different approver is required")
+            approval.status = "approved" if approved else "rejected"
+            approval.approver_user_id = approver_user_id
+            return approval
+
+    def consume(self, approval_id: str, *, actor_user_id: str, action: str, resource_id: str) -> bool:
+        with self._lock:
+            approval = self._approvals.get(approval_id)
+            if (approval is None or approval.status != "approved" or approval.expires_at <= self._clock()
+                    or approval.actor_user_id != actor_user_id or approval.action != action
+                    or approval.resource_id != resource_id):
+                return False
+            approval.status = "consumed"
+            return True
+
+
+class EmergencyStop:
+    """Fail-closed process-wide switch for restricted operations."""
+    def __init__(self, audit: AuditLogger):
+        self._audit = audit
+        self._lock = threading.Lock()
+        self._stopped = False
+        self._reason: str | None = None
+
+    @property
+    def stopped(self) -> bool:
+        with self._lock:
+            return self._stopped
+
+    def engage(self, actor_user_id: str, reason: str) -> None:
+        if not actor_user_id or not reason or len(reason) > 256:
+            raise ValueError("actor and bounded reason are required")
+        with self._lock:
+            self._stopped, self._reason = True, reason
+        self._audit.record(action="emergency_stop.engaged", actor_user_id=actor_user_id,
+                           outcome="success", details={"reason": reason})
+
+    def reset(self, actor_user_id: str) -> None:
+        if not actor_user_id:
+            raise ValueError("actor is required")
+        with self._lock:
+            self._stopped, self._reason = False, None
+        self._audit.record(action="emergency_stop.reset", actor_user_id=actor_user_id)
+
+    def check(self) -> None:
+        if self.stopped:
+            raise SecurityError("emergency_stop", "Restricted actions are temporarily disabled")
+
+
+class RestrictedActionManager:
+    """Enforces RBAC, emergency stop and policy-required approvals together."""
+    def __init__(self, policies: PolicyEngine, approvals: ApprovalEngine, stop: EmergencyStop,
+                 audit: AuditLogger):
+        self._policies, self._approvals, self._stop, self._audit = policies, approvals, stop, audit
+
+    def authorize(self, context: AuthContext, action: str, resource_id: str, *,
+                  owner_id: str | None = None, approval_id: str | None = None) -> None:
+        try:
+            policy = self._policies.authorize(context, action, owner_id=owner_id)
+            if policy.restricted:
+                self._stop.check()
+            if policy.approval_required and not (approval_id and self._approvals.consume(
+                    approval_id, actor_user_id=context.user_id, action=action, resource_id=resource_id)):
+                raise SecurityError("approval_required", "A valid approval is required")
+        except SecurityError as exc:
+            self._audit.record(action=action, actor_user_id=context.user_id,
+                               resource_id=resource_id, outcome="denied",
+                               details={"error_code": exc.code})
+            raise
+        self._audit.record(action=action, actor_user_id=context.user_id,
+                           resource_id=resource_id, outcome="authorized")
+
+
+def create_default_security() -> tuple[Authenticator, PolicyEngine, ApprovalEngine, AuditLogger, EmergencyStop, RestrictedActionManager]:
+    audit = AuditLogger()
+    policies = PolicyEngine()
+    policies.register(Policy("profile.read", frozenset({"user", "admin"})))
+    policies.register(Policy("admin.users.manage", frozenset({"admin"}), restricted=True, approval_required=True))
+    approvals = ApprovalEngine()
+    stop = EmergencyStop(audit)
+    actions = RestrictedActionManager(policies, approvals, stop, audit)
+    return Authenticator(), policies, approvals, audit, stop, actions
+
+
+def error_payload(error: SecurityError, request_id: str | None = None) -> dict[str, Any]:
+    """Shared API error envelope; never includes internals or credentials."""
+    return {"error": {"code": error.code, "message": error.message,
+                      "request_id": request_id, "details": {}}}
+
+
+__all__ = ["Approval", "ApprovalEngine", "AuthContext", "Authenticator", "AuditLogger",
+           "EmergencyStop", "Policy", "PolicyEngine", "RestrictedActionManager",
+           "SecretStore", "SecurityError", "create_default_security", "error_payload"]
