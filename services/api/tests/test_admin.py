@@ -17,15 +17,14 @@ class FakeDB:
                 db.calls.append((sql,params,caller))
                 if "GROUP BY status" in sql:return SimpleNamespace(description=[("status",),("count",)],fetchall=lambda:[("active",3)])
                 if "provider_configs WHERE enabled" in sql:return SimpleNamespace(description=[("count",)],fetchall=lambda:[(2,)])
-                if "SELECT name FROM roles" in sql or "SELECT name FROM roles" in sql:return SimpleNamespace(description=[("name",)],fetchall=lambda:[(r,) for r in params[0]])
-                if "SELECT name FROM roles WHERE name=ANY" in sql:return SimpleNamespace(description=[("name",)],fetchall=lambda:[(r,) for r in params[0]])
+                if "SELECT name" in sql:return SimpleNamespace(description=[("name",)],fetchall=lambda:[(r,) for r in params[0]])
                 if "UPDATE users" in sql:return SimpleNamespace(fetchone=lambda:("target","t@example.org","Target",params[0],"now"))
                 if "SELECT id,email,display_name,status,created_at FROM users WHERE id" in sql:return SimpleNamespace(fetchone=lambda:("target","t@example.org","Target","active","now"))
                 if "INSERT INTO admin_rules" in sql or "INSERT INTO service_controls" in sql:return SimpleNamespace(description=[],fetchall=lambda:[])
                 return SimpleNamespace(description=[("id",),("email",),("display_name",),("status",),("created_at",)],fetchall=lambda:[])
         return Conn()
 def setup_service():
-    audit=AuditLogger(); engine=PolicyEngine()
+    audit=AuditLogger();engine=PolicyEngine()
     for name in ("admin.users.read","admin.roles.read","admin.models.read","admin.knowledge.read","admin.learning.read","admin.reports.read","admin.rules.read","admin.audit.read","admin.analytics.read","admin.rules.manage","admin.emergency.engage","admin.emergency.reset"):
         engine.register(Policy(name,frozenset({"admin"})))
     engine.register(Policy("admin.users.manage",frozenset({"admin"}),True,True));engine.register(Policy("admin.services.control",frozenset({"admin"}),True,True))
