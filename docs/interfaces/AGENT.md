@@ -1,25 +1,27 @@
 # Personal Agent interface
 
-This contract documents the phase 4 implementation recorded in the repository status; it is not a claim of runtime validation. Authenticated endpoints mount under `/api/v1/agent` only when `NGIT_AGENT_WORKSPACE` explicitly provisions an isolated workspace. The module offers deterministic planning, a tool registry, execution, observations, verification, and process-local task history, using the shared `AuthContext`, `RestrictedActionManager`, and approval engine.
+This contract describes the Phase 4 implementation. It is not a claim of runtime validation. Authenticated endpoints mount under `/api/v1/agent` only when `NGIT_AGENT_WORKSPACE` explicitly configures an isolated workspace. Requests use the server-derived shared `AuthContext`; client-supplied owner IDs, policy decisions and arbitrary callables are not trusted.
 
-## Safety and execution contract
+## Planning and execution
 
-- The built-in planner converts clear workspace file read/write and HTTP(S) inspection requests into conservative one-step plans. Ambiguous goals fail closed. Any planner must use registered tools and validate handler input.
-- Tool handlers return a result containing value, observation, and verification. Failed verification cannot produce task success.
-- Filesystem writes, browser navigation, and computer actions are restricted and approval-required under shared policy. Backend authorization is checked against task-step action/resource identifiers before handlers execute. Missing approval pauses before side effects. A distinct reviewer issues exact-action/resource one-time grants; the existing approval workflow consumes them before execution. Rejection, expiry, mismatch, and emergency stop fail closed.
-- Task lookup/history is scoped to authenticated owner context. History and approval/security state are process-local; execution is synchronous, not a durable background runner.
-- Filesystem paths resolve under the configured workspace; UTF-8 text operations are bounded to 1 MiB. Browser URLs are HTTP(S) only and do not imply a network-fetch implementation. Computer control calls only an explicitly injected adapter; there is no shell/OS implementation.
+The deterministic planner accepts clear single-step workspace file read/write and HTTP(S) inspection goals. Ambiguous goals fail closed. Plans reference registered tools only. Tool handlers return a value, observation and verification result; false verification or handler failure never yields success. Task history is owner-scoped and process-local. Execution is synchronous, not a durable background runner.
 
-## REST contract
+The filesystem adapter limits UTF-8 text operations to 1 MiB and resolves paths under the configured root. This containment is not an OS-level sandbox and does not replace deployment filesystem isolation or symlink/race hardening. Browser inspection and navigation are adapter-based; navigation is sensitive. URL syntax validation is not an SSRF/network safety policy. A configured browser adapter must enforce allowed origins, DNS/IP restrictions, redirect and response-size limits. Computer control has no built-in OS/shell implementation and invokes only an explicitly injected adapter.
+
+## Approval and sensitive actions
+
+Filesystem writes, browser navigation and computer control use shared `RestrictedActionManager`, policy engine, emergency stop and approval engine. A sensitive action is authorized with an exact action string and task-step resource ID before its handler can execute. Missing approval pauses the task. Approval grants are exact-scope and single-use; denial, expiry, mismatch, emergency stop and rejection fail closed. The task owner may request a grant but cannot decide it: a distinct authenticated reviewer must make the decision through the shared approval engine. The user must resume the task with the approved grant. Never bypass the engine or treat a grant request as approval.
+
+## REST routes
 
 - `GET /api/v1/agent/tools`
-- `POST /api/v1/agent/tasks` with `{"goal":"..."}`; returns accepted task (`202`).
-- `GET /api/v1/agent/tasks?limit=50` and `GET /api/v1/agent/tasks/{task_id}`
-- `POST /api/v1/agent/approvals?task_id=...` creates a pending grant; an existing reviewer decides through the shared workflow.
-- `POST /api/v1/agent/tasks/{task_id}/approve` with `{"approval_id":"..."}`; corresponding reject route rejects a paused task.
+- `POST /api/v1/agent/tasks` with `{"goal":"..."}` returns accepted task state.
+- `GET /api/v1/agent/tasks?limit=50` and `GET /api/v1/agent/tasks/{task_id}` return owner-scoped history/task details.
+- `POST /api/v1/agent/tasks/{task_id}/approve` requests a pending exact-scope grant; it does not approve it.
+- `POST /api/v1/agent/approvals/{approval_id}/decision` with `{"approved":true}` is for an authenticated distinct reviewer and delegates to the shared approval engine.
+- `POST /api/v1/agent/tasks/{task_id}/resume` with `{"approval_id":"..."}` consumes the approved grant and executes the paused step.
+- `POST /api/v1/agent/tasks/{task_id}/reject` rejects a task awaiting approval without executing its side effect.
 
-All routes require authenticated caller context. Client-supplied owners, policy decisions, arbitrary callables, and resource authority are untrusted. The API does not mount Agent routes when workspace configuration is absent.
+## Validation and operational limits
 
-## Tests and limits
-
-The status records tests added under `services/api/tests/`; execution remains outstanding. When run, use `PYTHONPATH=. python -m unittest discover -s services/api/tests` from repository root with dependencies installed. Tests should use temporary workspaces and injected fake browser/computer adapters; they should not access external websites or control a desktop. Confirm exact test invocation against the current test README before reporting results.
+Agent unit and API tests are checked in under `services/api/tests/`; tests/runtime checks have not been executed for this implementation update. Run `PYTHONPATH=. python -m pytest services/api/tests` from repository root with documented dependencies. Task history and approval/security state are process-local. Keep a single worker until durable shared state and lifecycle are designed and validated. External AI APIs are optional and are not used by this deterministic agent engine.
