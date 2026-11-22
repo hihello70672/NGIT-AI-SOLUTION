@@ -1,4 +1,4 @@
-# Project status — Phases 1–3
+# Project status — Phases 1–4
 
 This file records committed repository evidence, not proof of runtime behavior or test execution.
 
@@ -6,11 +6,15 @@ This file records committed repository evidence, not proof of runtime behavior o
 **Status: Built.** Project architecture, dependency and phase plans, shared protocols, environment examples, Compose PostgreSQL configuration, and initial schema are present.
 
 ## Phase 2 — Core data, security, API, and web foundation
-**Status: Implemented foundation; integration/validation remains.** Repository includes PostgreSQL schema and reference data, SQL checks, API authentication/security/user services, API/security tests, and `apps/web` React/TypeScript application. Database migrations and RLS should be validated against disposable PostgreSQL; full API/web test and build suites still require execution.
+**Status: Implemented foundation; integration/validation remains.** The repository includes PostgreSQL schema and reference data, SQL checks, API authentication/security/user services and tests, and the `apps/web` React/TypeScript application. Validate migrations/RLS against disposable PostgreSQL and execute the API/web suites before claiming verified.
 
 ## Phase 3 — Brain, model runtime, memory, and knowledge
-**Status: Services implemented; runtime verification remains.** Brain intent/routing/runtime and REST contract are implemented with deterministic tests. Memory and knowledge services now persist conversations/messages/memory records using the established schema; retrieval provides local lexical search plus an optional vector-search adapter; knowledge ingestion chunks supplied text and verifies sources against an explicit allowlist. REST routes are mounted beneath the API prefix and depend on authenticated user context. Every persistence query is owner scoped and sets transaction-local RLS context; vector results are additionally restricted to the owner's persisted memory IDs. Existing schema has no vector column, so durable vector indexing/embedding generation remains an optional integration rather than a schema redesign. Source ingestion does not fetch external URLs.
+**Status: Services implemented; runtime verification remains.** Brain intent/routing/runtime and REST contract are implemented with deterministic tests. Memory and knowledge persistence use owner-scoped existing schema, lexical retrieval with an optional owner-filtered vector adapter, and allowlist-verified supplied-text ingestion. No URL crawling or schema redesign is introduced. Tests/database integration have not been executed in this authoring environment; use the API README instructions.
 
-`services/api/tests/test_memory.py` adds deterministic privacy, SQL scope, vector filtering, source verification, and chunking coverage. Tests and database integration have not been executed in this authoring environment. Run `PYTHONPATH=. pytest services/api/tests` with dependencies installed and `services/api/db/tests/run.sh` against disposable PostgreSQL. The Brain and memory functionality should not be considered fully verified until these execute successfully.
+## Phase 4 — Personal Agent, tools, browser/computer interfaces
+**Status: Core engine implemented; runtime verification and durable history remain.** The agent module provides a conservative explicit planner, allowlisted registry, bounded workspace filesystem tools, HTTP(S)-validated browser adapter, opt-in computer adapter, observations and verification, owner-scoped task lookup/history, and authenticated REST contracts. Sensitive filesystem writes, browser navigation, and computer actions delegate to the shared `RestrictedActionManager` and one-time `ApprovalEngine`; tasks pause before side effects until approval. No shell execution or implicit host control exists. History is process-local and the API does not enable agent routes unless a separately configured workspace and approval workflow are injected. `services/api/tests/test_agent.py` covers planning, registry, sandboxing, approval gating, isolation and adapter failures. Tests have not been run in this authoring environment.
 
-Remaining Phase 3 items: execute service and API tests; validate RLS and composite constraints against PostgreSQL; provide a concrete vector backend/embedding adapter only when deployment infrastructure and schema policy are approved; consider persistent model registry administration. External AI services remain optional.
+Remaining: run `PYTHONPATH=. python -m unittest discover -s services/api/tests` with dependencies installed, test approval workflow through the existing security routes, and select durable task persistence/runner only through an approved architecture decision.
+
+## External AI and operational validation
+External AI APIs are optional. Status statements above describe committed code only, not test results. PostgreSQL RLS, Compose, and full API integration still require validation in their target environments.
