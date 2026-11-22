@@ -1,14 +1,16 @@
 # Database
 
-Migration tooling remains an open architecture decision. Phase 1 uses ordered PostgreSQL SQL files under `migrations/` and SQL integration checks under `tests/`, without introducing an ORM. Apply all migrations lexically to fresh PostgreSQL 16+. The baseline and follow-up migrations preserve the existing schema while completing missing billing, provider, media, video and presentation tables.
+Phase 1 uses ordered plain SQL migrations under `migrations/` and SQL integration assertions under `tests/`, without introducing an ORM. Apply lexically ordered migrations to fresh PostgreSQL 16+ (composite-FK column-specific `SET NULL` requires PostgreSQL 15+). Migrations create the isolated `ngit` schema, domain tables, RLS and indexes. Reference data is seeded by migration 0002. Migration principal must own/create the schema objects; tenant application role must not own tables, be superuser, or have `BYPASSRLS`.
 
-Local PostgreSQL: from repository root copy `.env.example` to `.env`, then run `docker compose up -d db`. Apply migrations and checks to a disposable database:
+From repository root, against a fresh disposable database:
 
 ```sh
-for migration in services/api/db/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"; done
-DATABASE_URL=postgresql://app_user:app_password@localhost:5432/ngit_test sh services/api/db/tests/run.sh
+export DATABASE_URL='postgresql://migration_user:password@localhost:5432/ngit_test'
+sh services/api/db/tests/run.sh
 ```
 
-Use a non-superuser application role that does not own protected tables. API code must set `ngit.user_id` transaction-locally from authenticated server context, never client input. Provider configuration stores opaque references, not secret values. External AI remains optional. Runtime migrations and tests have not been executed in this task.
+To execute tenant integration assertions, provision a distinct non-superuser/non-owner application role with schema usage, required table DML, and fixture DML on the disposable test database, then set `APP_DATABASE_URL` to its connection. Do not grant `BYPASSRLS`; the role needs INSERT/SELECT privileges on test fixture tables. The runner applies migrations as `DATABASE_URL`, then executes test SQL as `APP_DATABASE_URL`.
 
-See [ERD](../../../docs/ERD.md) and [test instructions](tests/README.md).
+Use transaction-local `ngit.user_id` set only by trusted API code from authenticated server context, never client input. Provider configuration holds opaque credential references, not secret values. External AI is optional. RLS is a database defense-in-depth boundary; audit logs and reference/provider configuration are privileged service data and are not tenant-readable.
+
+The SQL tests assert cross-owner composite-FK rejection, RLS visibility and write isolation, seed presence, and billing/media/presentation relationships, rolling back fixture rows. No migration or test execution is claimed unless recorded in project status after it actually runs.
