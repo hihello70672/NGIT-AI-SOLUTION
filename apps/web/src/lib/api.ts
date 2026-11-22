@@ -19,7 +19,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
   catch { throw new Error('Unable to reach NGIT. Check that the API is running and try again.'); }
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
-    try { const body = await response.json() as ApiErrorPayload; message = body.error?.message || message; } catch { /* Keep the safe HTTP status message. */ }
+    try { const body = await response.json() as ApiErrorPayload; message = body.error?.message || message; } catch { /* Use the safe HTTP status fallback. */ }
     throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
@@ -32,7 +32,7 @@ export const api = {
   me: async (token: string): Promise<User> => normalizeUser(await request<User>('/users/me', {}, token)),
   updateMe: async (token: string, display_name: string): Promise<User> => normalizeUser(await request<User>('/users/me', { method: 'PATCH', body: JSON.stringify({ display_name }) }, token)),
   logout: (token: string): Promise<void> => request<void>('/auth/logout', { method: 'POST' }, token),
-  adminUsers: async (token: string): Promise<User[]> => (await request<User[]>('/admin/users', {}, token)).map(normalizeUser),
+  adminUsers: async (token: string): Promise<User[]> => { const result = await request<{ users: User[] }>('/users?limit=100&offset=0', {}, token); return result.users.map(normalizeUser); },
 };
 export function getSavedToken(): string | null { try { return localStorage.getItem('ngit_access_token'); } catch { return null; } }
-export function saveToken(token: string | null): void { try { if (token) localStorage.setItem('ngit_access_token', token); else localStorage.removeItem('ngit_access_token'); } catch { /* Session remains usable in memory for this tab. */ } }
+export function saveToken(token: string | null): void { try { if (token) localStorage.setItem('ngit_access_token', token); else localStorage.removeItem('ngit_access_token'); } catch { /* In-memory session remains usable for this tab. */ } }
