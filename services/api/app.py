@@ -69,24 +69,24 @@ async def request_id_middleware(request: Request, call_next):
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
     fields = [{"field": ".".join(map(str, e["loc"][1:])), "message": e["msg"]} for e in exc.errors()]
-    return JSONResponse(422, {"error": {"code": "validation_error", "message": "Request validation failed", "request_id": request_id(request), "details": {"fields": fields}}})
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": "Request validation failed", "request_id": request_id(request), "details": {"fields": fields}}})
 
 @app.exception_handler(SecurityError)
 async def security_error(request: Request, exc: SecurityError):
     status = 401 if exc.code == "unauthenticated" else 503 if exc.code == "emergency_stop" else 403
-    return JSONResponse(status, {"error": {"code": exc.code, "message": exc.message, "request_id": request_id(request), "details": {}}})
+    return JSONResponse(status_code=status, content={"error": {"code": exc.code, "message": exc.message, "request_id": request_id(request), "details": {}}})
 
 @app.exception_handler(UniqueViolation)
 async def unique_error(request: Request, exc: UniqueViolation):
-    return JSONResponse(409, {"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": request_id(request), "details": {}}})
+    return JSONResponse(status_code=409, content={"error": {"code": "conflict", "message": "A resource with these details already exists", "request_id": request_id(request), "details": {}}})
 
 @app.exception_handler(ValueError)
 async def value_error(request: Request, exc: ValueError):
-    return JSONResponse(422, {"error": {"code": "validation_error", "message": str(exc)[:256], "request_id": request_id(request), "details": {}}})
+    return JSONResponse(status_code=422, content={"error": {"code": "validation_error", "message": str(exc)[:256], "request_id": request_id(request), "details": {}}})
 
 @app.exception_handler(Exception)
 async def internal_error(request: Request, exc: Exception):
-    return JSONResponse(500, {"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": request_id(request), "details": {}}})
+    return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "An unexpected error occurred", "request_id": request_id(request), "details": {}}})
 
 @app.get("/health", tags=["health"])
 def health():
