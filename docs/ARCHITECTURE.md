@@ -1,6 +1,6 @@
 # NGIT AI SOLUTION v4.0 — Architecture
 
-**Status:** Approved target architecture. Repository status and validation evidence are tracked separately in [STATUS.md](STATUS.md). Phases 1–4 are partly implemented, not fully validated; checked-in tests do not prove execution or passing results.
+**Status:** Approved target architecture. Repository status and validation evidence are tracked separately in [STATUS.md](STATUS.md). Phases 1–3 are partly implemented, not fully validated; checked-in tests do not prove execution or passing results.
 
 ## 1. System shape and stack
 
@@ -15,7 +15,7 @@ NGIT is a modular, web-first AI ecosystem. This milestone contains one frontend,
 | Local development | Docker Compose supports local development. `compose.yaml` currently defines PostgreSQL only; API and web containers are not part of it. |
 | Future clients | Windows, Kali, and Android projects are outside this milestone. |
 
-The current status describes phases 1–4 as partly done, not fully validated. Tests and runtime checks have not been run according to the status record. Do not treat checked-in test sources as passing tests.
+The current status describes phases 1–3 as partly done, not fully validated. Tests and runtime checks have not been run according to the status record. Do not treat checked-in test sources as passing tests.
 
 ## 2. Repository layout
 
@@ -24,14 +24,14 @@ This layout is based on repository evidence. Proposed domain subdirectories must
 ```text
 NGIT-AI-SOLUTION/
 ├── apps/
-│   └── web/                       # Existing React/TypeScript/Vite frontend
+│   └── web/                                      # Existing React/TypeScript/Vite frontend
 ├── services/
-│   └── api/                       # Existing FastAPI backend
-│       ├── modules/               # Existing feature modules; preserve layout
+│   └── api/                                      # Existing FastAPI backend
+│       ├── modules/                              # Existing feature modules; preserve layout
 │       ├── db/
-│       │   ├── migrations/        # Five ordered SQL migrations, 0001–0005
-│       │   └── tests/             # Database test sources and README
-│       └── tests/                 # API/backend test sources
+│       │   ├── migrations/                       # Five ordered SQL migrations, 0001–0005
+│       │   └── tests/                            # Database test sources and README
+│       └── tests/                                # API/backend test sources
 ├── docs/
 │   ├── AGENT_ASSIGNMENTS.md
 │   ├── ARCHITECTURE.md
@@ -40,16 +40,12 @@ NGIT-AI-SOLUTION/
 │   ├── PHASE_PLAN.md
 │   ├── STATUS.md
 │   └── interfaces/
-│       ├── AGENT.md
-│       ├── BRAIN.md
-│       ├── MEMORY.md
-│       └── SHARED_PROTOCOLS.md
 ├── infra/
-│   └── docker/                    # Local Docker guidance
+│   └── docker/                                   # Local Docker guidance
 ├── .env.example
 ├── .gitignore
 ├── README.md
-└── compose.yaml                   # PostgreSQL service only
+└── compose.yaml                                 # PostgreSQL service only
 ```
 
 The migration inventory was inspected: `services/api/db/migrations/` contains exactly `0001_initial_schema.sql` through `0005_tenant_safe_video_source.sql`. This resolves the former discrepancy: documentation now reflects five migrations. `docs/TEST_REPORT.md` is absent and must only be created after tests have actually run, with exact commands, environment, and outcomes.
@@ -71,8 +67,8 @@ Each module owns its behavior, input validation, persistence model and migration
 | Video presentations | Text-to-script, scenes, storyboards, asset matching, timelines, audio sync, subtitles, previews, and export for specified presenter/content modes. |
 | Presenter capability | Robot and human avatars, lip-sync, facial, gesture and body animation, text-to-speech, speech alignment, voice configuration, and virtual studio. |
 | Newsroom | Aggregation, analysis, verification, headlines, scripts, narration, ticker, subtitles, and archives. Never fabricate real-world events or present generated footage as authentic. |
-| Education | Lesson planning/generation, teaching presentations, virtual teacher/classroom, visual explanations, quizzes, and assessment. |
-| Cybersecurity | Authorized assessments, network/web analysis, configuration audits, forensics, safe labs, and remediation reporting. Validate authorization and scope. |
+| Education | Lesson planning/generation, teaching presentations, virtual classroom/teacher, visual explanations, quizzes, and assessment. |
+| Cybersecurity | Authorized network/web analysis, configuration audits, forensics, safe labs, and remediation reporting. Validate authorization and scope. |
 | Billing | Plans, subscriptions, metering, quotas, payment verification, history, webhooks, renewals, and refunds. Do not assume a payment provider or expose credentials. |
 | Administration | Backend-enforced administration for users, roles, models, knowledge, rules, services, reports, analytics, audit, and emergency controls. |
 | Web application | The only frontend in this milestone. Consumes documented APIs and provides accessible, responsive operation states. |
@@ -85,7 +81,7 @@ The shared-interface documents are `docs/interfaces/SHARED_PROTOCOLS.md`, `AGENT
 
 - Publish typed request/result contracts and document failure behavior. Consumers must not rely on private persistence or implementation details.
 - Authenticated services receive **server-derived caller context**. Never authorize based on a client-supplied user ID, role, permission, or approval.
-- Enforce user ownership in service queries. Test cross-user isolation. Where PostgreSQL RLS is configured, test it using a non-owner, non-superuser application role without `BYPASSRLS`.
+- Enforce user ownership in service queries. Where PostgreSQL RLS is configured, test it using a non-owner, non-superuser application role without `BYPASSRLS`.
 - Perform shared policy/approval checks immediately before sensitive execution when required, and record relevant audit outcomes.
 - Long-running work defines task status and result, owner context, correlation, idempotency, retry, cancellation, and failure behavior before claiming reliability or durability.
 
@@ -115,29 +111,28 @@ Foundation: API configuration, database conventions, shared protocols
   └── Identity and users
         └── Core security and audit
               ├── Brain and model runtime
-              │     ├── Memory and knowledge
-              │     └── Optional provider/integration capabilities
-              ├── Personal Agent and registered tools
-              ├── Administration and rules
-              ├── Billing
-              ├── Language intelligence
-              │     ├── Voice, vision, remote-control interfaces
-              │     ├── Brain
-              │     ├── Media and presentations
-              │     ├── Newsroom
-              │     └── Education
+              │     └── Memory and knowledge
+              │           └── Optional provider/integration capabilities
+              │                 └── Personal Agent and registered tools
+              │                       └── Administration and rules
+              │                             └── Billing
+              │                                   └── Language intelligence
+              │                                         └── Voice, vision, remote-control interfaces
+              ├── Brain
+              │     └── Media and presentations
+              │           └── Newsroom
+              │                 └── Education
               └── Authorized Cybersecurity capabilities
 
-Creative/media ──> Video presentation orchestration ──> Presenter capability
-                                               ├──────> Language/voice capabilities
-                                               └──────> Media capabilities
-
-Newsroom ──> verified sources, language, media/presentation capabilities
-Education ──> Brain, language, media/presentation capabilities
-Cybersecurity ──> authorization, policy/approval, audit, safe-lab interfaces
-Administration/Billing/Integrations ──> identity, security, audit
-Web application ──> documented backend APIs only
+Creative/media → Video presentation orchestration → Presenter capability
+                    └── Language/voice capabilities
 ```
+
+Newsroom → verified sources, language, media/presentation capabilities  
+Education → Brain, language, media/presentation capabilities  
+Cybersecurity → authorization, policy/approval, audit, safe-lab interfaces  
+Administration/Billing/Integrations → identity, security, audit  
+Web application → documented backend APIs only
 
 Phase order is: (1) architecture, repository, database, shared protocols; (2) authentication, backend, security, users; (3) Brain, model runtime, memory, knowledge; (4) Personal Agent, tools, browser, computer interfaces; (5) multilingual, voice, vision, remote-control interfaces; (6) administration, rules, service control, billing; (7) optional provider management and browsing; (8) Creative Studio; (9) Content-to-Video, presenters, lip-sync, subtitles; (10) Newsroom, Teaching, Storytelling; (11) Cybersecurity Center; (12) integration, QA, documentation, verified local release.
 
