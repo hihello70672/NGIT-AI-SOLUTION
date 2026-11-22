@@ -25,7 +25,10 @@ class AdminService:
         if kind not in specs:raise AdminError("unknown administrative resource")
         action,sql=specs[kind];self._authorize(context,action);params=(limit,offset)
         if kind=="users" and query:sql="SELECT id,email,display_name,status,created_at FROM users WHERE email ILIKE %s OR display_name ILIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s";params=(f"%{query[:100]}%",f"%{query[:100]}%",limit,offset)
-        return self._query(sql,params,context.user_id)
+        result=self._query(sql,params,context.user_id)
+        if kind in {"reports","audit-logs","learning-requests"}:
+            for event in result:event["details"]={"redacted":True}
+        return result
     def update_user(self,context:AuthContext,user_id:str,*,status:str|None=None,roles:list[str]|None=None)->dict[str,Any]:
         self._authorize(context,"admin.users.manage",user_id)
         if status is None and roles is None:raise AdminError("at least one user change is required")
@@ -72,5 +75,6 @@ class AdminService:
         return {"stopped":self.actions._stop.stopped}
     def audit_events(self,context:AuthContext,limit:int=100)->list[dict[str,Any]]:
         if isinstance(limit,bool) or not 1<=limit<=100:raise AdminError("invalid limit")
-        self._authorize(context,"admin.audit.read");return self._query("SELECT id,actor_user_id,action,resource_id,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s",(limit,),context.user_id)
+        self._authorize(context,"admin.audit.read");events=self._query("SELECT id,actor_user_id,action,resource_id,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s",(limit,),context.user_id)
+        return [{**event,"details":{"redacted":True}} for event in events]
 __all__=["AdminError","AdminService"]
