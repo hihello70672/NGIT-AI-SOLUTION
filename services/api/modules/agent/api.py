@@ -29,9 +29,10 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any =
     @router.post("/tasks/{task_id}/approve")
     def request_approval(task_id: str, context: AuthContext = Depends(current_user)):
         if approvals is None: raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
-        record = invoke(agent.get, context, task_id)
-        pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
+        record = invoke(agent.get, context, task_id); pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
         if record.state != "awaiting_approval" or pending is None: raise HTTPException(status_code=409, detail={"code": "approval_not_required", "message": "Task has no pending approval"})
+        if record.pending_approval_id:
+            return {"task_id": task_id, "approval_id": record.pending_approval_id, "action": pending["action"], "resource_id": pending["resource_id"], "status": "pending"}
         try: grant = approvals.request(context.user_id, pending["action"], pending["resource_id"])
         except SecurityError as exc: raise HTTPException(status_code=403, detail={"code": exc.code, "message": exc.message}) from exc
         record.pending_approval_id = grant.approval_id

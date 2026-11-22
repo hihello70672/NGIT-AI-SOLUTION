@@ -220,11 +220,7 @@ def build_agent(tools: ToolRegistry, permissions: RestrictedActionManager, works
         _load_adapter(os.environ["NGIT_AGENT_BROWSER_NAVIGATOR"]) if os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR") else None)
     computer = computer or ComputerControlInterface(_load_adapter(os.environ["NGIT_AGENT_COMPUTER_ADAPTER"]) if os.getenv("NGIT_AGENT_COMPUTER_ADAPTER") else None)
     fs = FilesystemInterface(workspace)
-    for definition in (ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect),
-        ToolDefinition("browser.navigate", "Approval-gated HTTP(S) navigation", True, browser.navigate),
-        ToolDefinition("filesystem.read", "Read UTF-8 text in agent workspace", False, fs.read),
-        ToolDefinition("filesystem.write", "Approval-gated workspace text write", True, fs.write),
-        ToolDefinition("computer.perform", "Approval-gated injected computer action", True, computer.perform)):
+    for definition in (ToolDefinition("browser.inspect", "Read-only HTTP(S) page inspection", False, browser.inspect), ToolDefinition("browser.navigate", "Approval-gated HTTP(S) navigation", True, browser.navigate), ToolDefinition("filesystem.read", "Read UTF-8 text in agent workspace", False, fs.read), ToolDefinition("filesystem.write", "Approval-gated workspace text write", True, fs.write), ToolDefinition("computer.perform", "Approval-gated injected computer action", True, computer.perform)):
         tools.register(definition)
     return AgentService(tools, permissions)
 
