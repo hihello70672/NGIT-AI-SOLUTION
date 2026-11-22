@@ -6,7 +6,7 @@ from services.api.security import AuthContext, SecurityError
 from services.api.modules.agent.runtime import AgentError, AgentService, public_record
 
 
-def create_router(agent: AgentService, current_user: Any, approvals: Any | None = None) -> APIRouter:
+def create_agent_router(agent: AgentService, current_user: Any, approvals: Any | None = None) -> APIRouter:
     router = APIRouter(prefix="/agent", tags=["agent"])
 
     class TaskInput(BaseModel):
@@ -70,5 +70,5 @@ def create_router(agent: AgentService, current_user: Any, approvals: Any | None 
     return router
 
 
-create_agent_router = create_router
+create_router = create_agent_router
 __all__ = ["create_router", "create_agent_router"]
