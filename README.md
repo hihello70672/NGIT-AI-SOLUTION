@@ -1,19 +1,19 @@
 # NGIT AI SOLUTION
 
-NGIT is a modular, web-first AI ecosystem with a FastAPI backend, PostgreSQL system of record, and React/TypeScript/Vite web client in `apps/web/`. This milestone focuses on the web application and backend. Windows, Kali, and Android clients are future adaptations and are out of scope until the web/backend system is stable.
+NGIT is a modular, web-first AI ecosystem with a FastAPI backend, PostgreSQL system of record, and React/TypeScript/Vite web client at `apps/web/`. This milestone focuses on the web/backend system. Windows, Kali, and Android clients are future adaptations and are out of scope until the web system is stable.
 
-## Repository map
+## Repository layout
 
 ```text
-apps/web/                  React, TypeScript, Vite frontend
-services/api/              FastAPI backend, modules, database migrations and tests
-infra/docker/              Local Docker guidance
-docs/                      Architecture, dependencies, phases, status and shared interfaces
-compose.yaml               Local PostgreSQL Compose service
-.env.example               Development configuration template
+apps/web/          React, TypeScript and Vite client
+services/api/      FastAPI API, feature modules, database migrations and tests
+docs/              Architecture, dependency, phase, status and shared-interface docs
+infra/docker/      Local Docker guidance
+compose.yaml       Local PostgreSQL service only
+.env.example       Development configuration template
 ```
 
-The paths above describe the repository organization, not completion of every planned module. See [project status](docs/STATUS.md), [architecture](docs/ARCHITECTURE.md), and [phase plan](docs/PHASE_PLAN.md) for evidence and open validation work.
+The layout describes current organization, not completion of every planned module. Preserve existing modules, routes, migrations and tests. Cross-module consumers use published typed contracts; services own their persistence. The frontend calls backend APIs and is not an authorization boundary. PostgreSQL is never accessed directly from browser code.
 
 ## Local PostgreSQL
 
@@ -21,26 +21,25 @@ Prerequisite: Docker with the Compose plugin. From the repository root:
 
 ```sh
 cp .env.example .env
-# Replace example pepper values with locally generated random values before starting the API.
+# Replace the example pepper values with locally generated random values before starting the API.
 docker compose up -d db
 docker compose ps
 ```
 
-The root Compose file currently runs PostgreSQL 16 only; it does not containerize the API or web client. Database data is held in a named volume. Stop without deleting it using `docker compose down`. `docker compose down -v` deletes the named database volume and its data; use only when that is intended. Follow [local Docker guidance](infra/docker/README.md) and the database migration instructions in `services/api/db/README.md`. Compose lifecycle and migrations are not claimed as validated here.
+The checked-in Compose file starts PostgreSQL 16 only; it does not containerize the API or web client. By default the database is published on localhost port 5432. The named volume `ngit_postgres_data` persists database data. Stop without deleting data with `docker compose down`. `docker compose down -v` deletes the database volume and its data; use only when that is intentional.
+
+Apply SQL migrations following the instructions in [`services/api/db/README.md`](services/api/db/README.md). There are five ordered migrations (`0001`–`0005`). Database initialization, grants/RLS, and Compose lifecycle have not been runtime-validated according to [`docs/STATUS.md`](docs/STATUS.md). Tenant isolation checks must use a non-owner, non-superuser application role without `BYPASSRLS`, not a superuser or table owner.
 
 ## API and web development
 
-See [API setup](services/api/README.md) for Python dependencies, configuration, and startup, and [web setup](apps/web/README.md) for frontend commands. The frontend calls documented backend APIs and never connects directly to PostgreSQL. Authorization is enforced by backend services, not the UI.
+See [`services/api/README.md`](services/api/README.md) for Python dependencies, environment configuration and API startup, and [`apps/web/README.md`](apps/web/README.md) for frontend commands. The frontend consumes documented backend APIs. External AI APIs are optional; NGIT Brain retains a local/self-hosted runtime path. Keep secrets out of source control and use `.env.example` only as a template.
 
-NGIT Brain must retain a local or self-hosted runtime path. External AI APIs are optional. Keep credentials and secrets server-side; never commit `.env` or real credentials. Checked-in test sources do not indicate that tests ran. Record exact commands and outcomes when performing validation.
+## Architecture, status and verification
 
-## Architecture and contracts
+- [Architecture](docs/ARCHITECTURE.md) and [dependency map](docs/DEPENDENCY_MAP.md)
+- [Phase plan](docs/PHASE_PLAN.md) and [agent assignments](docs/AGENT_ASSIGNMENTS.md)
+- [Shared protocols](docs/interfaces/SHARED_PROTOCOLS.md), [Agent](docs/interfaces/AGENT.md), [Brain](docs/interfaces/BRAIN.md), and [Memory](docs/interfaces/MEMORY.md)
+- [Current status and validation gaps](docs/STATUS.md)
+- [Local Docker guidance](infra/docker/README.md)
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Dependency map](docs/DEPENDENCY_MAP.md)
-- [Phase plan](docs/PHASE_PLAN.md)
-- [Agent assignments](docs/AGENT_ASSIGNMENTS.md)
-- [Status and validation gaps](docs/STATUS.md)
-- [Shared protocols](docs/interfaces/SHARED_PROTOCOLS.md), [Agent](docs/interfaces/AGENT.md), [Brain](docs/interfaces/BRAIN.md), and [Memory](docs/interfaces/MEMORY.md) contracts
-
-Preserve existing routes, modules, migrations, and tests. Module consumers use published contracts, not private internals or another module's tables. Shared contract and boundary changes require Chief Architect review.
+The migration inventory was checked against actual files: exactly five SQL migration files, `0001` through `0005`. Checked-in tests are test sources only, not evidence they ran. No test pass, live database startup, release, or production readiness is claimed here. Run the documented suites and record exact commands, environment, and outcomes only after execution. `docs/TEST_REPORT.md` is intentionally absent until that work has occurred.
