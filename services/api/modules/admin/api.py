@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from services.api.security import AuthContext
-from .service import AdminError, AdminService
+from .service import AdminService
 
 
 class UserChange(BaseModel):
@@ -33,8 +33,7 @@ def create_admin_router(service: AdminService, current_user: Any) -> APIRouter:
     router = APIRouter(prefix="/admin", tags=["administration"])
 
     @router.get("/{kind}")
-    def list_resource(kind: str, limit: int = Query(100, ge=1, le=100), offset: int = Query(0, ge=0),
-                      q: str = Query("", max_length=100), context: AuthContext = Depends(current_user)):
+    def list_resource(kind: str, limit: int = Query(100, ge=1, le=100), offset: int = Query(0, ge=0), q: str = Query("", max_length=100), context: AuthContext = Depends(current_user)):
         return {"items": service.list_resource(context, kind, limit, offset, q)}
 
     @router.patch("/users/{user_id}")
