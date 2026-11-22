@@ -54,14 +54,12 @@ def test_verified_ingestion_checks_exact_host_port_and_provenance():
 def test_vector_adapter_discards_foreign_and_nonfinite_embeddings():
     from services.api.modules.memory.vector import EmbeddingVectorSearch
     adapter=EmbeddingVectorSearch(lambda _:[1.,0.],lambda **_:[{"id":"mine","user_id":OWNER,"embedding":[1,0]},{"id":"other","user_id":OTHER,"embedding":[1,0]},{"id":"bad","user_id":OWNER,"embedding":[float("nan"),0]}])
-    assert [x["id"] for x in adapter.search(user_id=OWNER,query="hello")==["mine"]
+    assert [x["id"] for x in adapter.search(user_id=OWNER,query="hello")] == ["mine"]
     with pytest.raises(ValueError):adapter.search(user_id="invalid",query="hello")
-
-def test_conversation_query_does_not_select_other_owners_messages():
+def test_message_query_constrains_owner_and_conversation():
     db=DB();MemoryService(db).conversation_messages(OWNER,CONVERSATION)
     sql,params=db.conn.calls[0]
     assert "c.id=m.conversation_id" in sql and "c.user_id=%s" in sql and params==(OWNER,CONVERSATION,OWNER,100)
-
 def test_empty_allowlist_and_unsafe_url_schemes_fail_closed():
     verifier=KnowledgeService.verify_source
     assert not verifier("https://docs.example.org",[])
