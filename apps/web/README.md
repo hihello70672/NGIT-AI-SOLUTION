@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Set `VITE_API_BASE_URL` to the FastAPI origin (defaults to `http://localhost:8000`). Vite appends `/api/v1`; routes consumed include `POST /auth/login`, `POST /auth/register`, `POST /auth/logout`, `GET /users/me`, `PATCH /users/me`, and the backend's admin-only `GET /users?limit=100&offset=0`. Configure the API's CORS origins for the Vite development origin as needed.
+Set `VITE_API_BASE_URL` to the FastAPI origin (defaults to `http://localhost:8000`). Vite appends `/api/v1`; routes consumed include `POST /auth/login`, `POST /auth/register`, `POST /auth/logout`, `GET /users/me`, `PATCH /users/me`, and admin-only `GET /users?limit=100&offset=0`. Configure the API's CORS origins for the Vite development origin as needed.
 
 The browser stores the bearer token in local storage to match the current API contract. This is not an authorization boundary; backend checks must be retained. Administrator navigation is a convenience only: the server enforces access. Do not store provider credentials or secrets in the web client. External AI is optional and is not called by the web app.
 
