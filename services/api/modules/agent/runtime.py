@@ -1,58 +1,49 @@
 """Conservative Personal Agent planner and approval-gated capability execution."""
 from __future__ import annotations
+import importlib
 import os
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass,field
+from datetime import datetime,timezone
 from pathlib import Path
 from threading import RLock
-from typing import Any, Callable, Mapping
+from typing import Any,Callable,Mapping
 from urllib.parse import urlparse
 from uuid import uuid4
-from services.api.security import AuthContext, RestrictedActionManager, SecurityError
+from services.api.security import AuthContext,RestrictedActionManager,SecurityError
 
 class AgentError(ValueError):
     """Safe machine-readable agent failure."""
-    def __init__(self, code: str, message: str): super().__init__(message); self.code, self.message = code, message
-
+    def __init__(self,code:str,message:str):super().__init__(message);self.code,self.message=code,message
 @dataclass(frozen=True)
-class PlannedStep: tool_name: str; arguments: Mapping[str, Any]; description: str
+class PlannedStep:tool_name:str;arguments:Mapping[str,Any];description:str
 @dataclass(frozen=True)
-class AgentPlan: task_id: str; owner_id: str; goal: str; steps: tuple[PlannedStep, ...]; created_at: str
+class AgentPlan:task_id:str;owner_id:str;goal:str;steps:tuple[PlannedStep,...];created_at:str
 @dataclass(frozen=True)
-class ToolResult: value: Any; observation: str; verified: bool
+class ToolResult:value:Any;observation:str;verified:bool
 @dataclass
 class TaskRecord:
-    task_id: str
-    owner_id: str
-    goal: str
-    state: str
-    created_at: str
-    updated_at: str
-    plan: list[dict[str, Any]] = field(default_factory=list)
-    observations: list[dict[str, Any]] = field(default_factory=list)
-    result: Any = None
-    error: str | None = None
-    pending_approval_id: str | None = None
+    task_id:str;owner_id:str;goal:str;state:str;created_at:str;updated_at:str
+    plan:list[dict[str,Any]]=field(default_factory=list);observations:list[dict[str,Any]]=field(default_factory=list)
+    result:Any=None;error:str|None=None;pending_approval_id:str|None=None
 @dataclass(frozen=True)
-class ToolDefinition: name: str; description: str; sensitive: bool; handler: Callable[[Mapping[str, Any]], ToolResult]
+class ToolDefinition:name:str;description:str;sensitive:bool;handler:Callable[[Mapping[str,Any]],ToolResult]
 
 class ToolRegistry:
     """Explicit allowlist for agent capabilities."""
-    def __init__(self): self._tools: dict[str, ToolDefinition] = {}
-    def register(self, definition: ToolDefinition) -> None:
-        if not re.fullmatch(r"[a-z][a-z0-9_.-]{1,63}", definition.name): raise ValueError("invalid tool name")
-        if definition.name in self._tools: raise ValueError("tool name already registered")
-        self._tools[definition.name] = definition
-    def get(self, name: str) -> ToolDefinition:
-        try: return self._tools[name]
-        except KeyError as exc: raise AgentError("tool_not_found", "Requested tool is not available") from exc
-    def list(self) -> list[dict[str, Any]]: return [{"name":t.name,"description":t.description,"sensitive":t.sensitive} for t in sorted(self._tools.values(),key=lambda x:x.name)]
+    def __init__(self):self._tools:dict[str,ToolDefinition]={}
+    def register(self,definition:ToolDefinition)->None:
+        if not re.fullmatch(r"[a-z][a-z0-9_.-]{1,63}",definition.name):raise ValueError("invalid tool name")
+        if definition.name in self._tools:raise ValueError("tool name already registered")
+        self._tools[definition.name]=definition
+    def get(self,name:str)->ToolDefinition:
+        try:return self._tools[name]
+        except KeyError as exc:raise AgentError("tool_not_found","Requested tool is not available") from exc
+    def list(self)->list[dict[str,Any]]:return [{"name":t.name,"description":t.description,"sensitive":t.sensitive} for t in sorted(self._tools.values(),key=lambda x:x.name)]
 
 class BrowserInterface:
-    """Adapter-based browser boundary; network I/O is always explicit."""
-    def __init__(self, reader: Callable[[str], str] | None = None, navigator: Callable[[str], Any] | None = None):
-        self.reader=reader or (lambda url:f"Browser adapter unavailable for {urlparse(url).netloc}");self.navigator=navigator
+    """Adapter-based browser boundary; network I/O is explicit."""
+    def __init__(self,reader:Callable[[str],str]|None=None,navigator:Callable[[str],Any]|None=None):self.reader=reader or (lambda url:f"Browser adapter unavailable for {urlparse(url).netloc}");self.navigator=navigator
     @staticmethod
     def _url(value:Any)->str:
         if not isinstance(value,str) or len(value)>2048:raise AgentError("invalid_arguments","A valid HTTP(S) URL is required")
@@ -87,12 +78,11 @@ class FilesystemInterface:
     def write(self,args:Mapping[str,Any])->ToolResult:
         path,content=self.resolve(args.get("path")),args.get("content")
         if not isinstance(content,str) or len(content.encode("utf-8"))>self.MAX_BYTES:raise AgentError("invalid_arguments","Text content is required and must be at most 1 MB")
-        path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding="utf-8")
-        verified=path.read_text(encoding="utf-8")==content
+        path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content,encoding="utf-8");verified=path.read_text(encoding="utf-8")==content
         return ToolResult({"path":str(path.relative_to(self.root)),"bytes":len(content.encode("utf-8"))},"File write verified" if verified else "File write verification failed",verified)
 
 class ComputerControlInterface:
-    """No shell/OS control is implicit; only an injected adapter can run."""
+    """No shell/OS access; operations go only through a configured adapter."""
     ACTIONS={"screenshot","click","type","keypress"}
     def __init__(self,adapter:Callable[[str,Mapping[str,Any]],Any]|None=None):self.adapter=adapter
     def perform(self,args:Mapping[str,Any])->ToolResult:
@@ -102,7 +92,7 @@ class ComputerControlInterface:
         return ToolResult(self.adapter(action,args),f"Computer action {action} completed",True)
 
 class AgentPlanner:
-    """Deterministically plan only explicit supported single-step requests."""
+    """Deterministic explicit single-step task planning."""
     def plan(self,owner_id:str,goal:str)->AgentPlan:
         if not owner_id or not isinstance(goal,str) or not goal.strip() or len(goal)>4000:raise AgentError("invalid_goal","A non-empty goal of at most 4000 characters is required")
         text=goal.strip();match=re.fullmatch(r"(?:read|show)\s+(?:file\s+)?(.+)",text,re.I)
@@ -117,13 +107,11 @@ class AgentPlanner:
         return AgentPlan(str(uuid4()),owner_id,text,(step,),datetime.now(timezone.utc).isoformat())
 
 class AgentService:
-    def __init__(self,tools:ToolRegistry,permissions:RestrictedActionManager,planner:AgentPlanner|None=None):
-        self.tools,self.permissions,self.planner=tools,permissions,planner or AgentPlanner();self._records={};self._plans={};self._lock=RLock()
+    def __init__(self,tools:ToolRegistry,permissions:RestrictedActionManager,planner:AgentPlanner|None=None):self.tools,self.permissions,self.planner=tools,permissions,planner or AgentPlanner();self._records={};self._plans={};self._lock=RLock()
     @staticmethod
     def _now()->str:return datetime.now(timezone.utc).isoformat()
     def submit(self,context:AuthContext,goal:str)->TaskRecord:
-        plan=self.planner.plan(context.user_id,goal);now=self._now()
-        record=TaskRecord(plan.task_id,context.user_id,plan.goal,"accepted",now,now,plan=[{"tool_name":s.tool_name,"arguments":dict(s.arguments),"description":s.description} for s in plan.steps])
+        plan=self.planner.plan(context.user_id,goal);now=self._now();record=TaskRecord(plan.task_id,context.user_id,plan.goal,"accepted",now,now,plan=[{"tool_name":s.tool_name,"arguments":dict(s.arguments),"description":s.description} for s in plan.steps])
         with self._lock:self._records[record.task_id],self._plans[record.task_id]=record,plan
         return self.execute(context,record.task_id)
     def execute(self,context:AuthContext,task_id:str,approval_id:str|None=None)->TaskRecord:
@@ -140,8 +128,7 @@ class AgentService:
                 if approval_id!=record.pending_approval_id:record.state,record.error,record.updated_at="failed","approval_mismatch",self._now();return record
                 try:self.permissions.authorize(context,action,resource,approval_id=approval_id)
                 except SecurityError as exc:record.state,record.error,record.updated_at="failed",exc.code,self._now();return record
-                record.observations=[o for o in record.observations if o.get("state")!="approval_required"]
-                record.state,record.pending_approval_id="running",None
+                record.observations=[o for o in record.observations if o.get("state")!="approval_required"];record.state,record.pending_approval_id="running",None
                 if not self._run_tool(record,step,tool,index):return record
                 record.state,record.error,record.updated_at="succeeded",None,self._now();return record
             record.state,record.updated_at="running",self._now()
@@ -151,9 +138,7 @@ class AgentService:
                 try:self.permissions.authorize(context,action,resource)
                 except SecurityError as exc:
                     if exc.code=="approval_required":
-                        with self._lock:
-                            record.state,record.updated_at="awaiting_approval",self._now()
-                            record.observations.append({"step":index,"state":"approval_required","action":action,"resource_id":resource})
+                        with self._lock:record.state,record.updated_at="awaiting_approval",self._now();record.observations.append({"step":index,"state":"approval_required","action":action,"resource_id":resource})
                         return record
                     with self._lock:record.state,record.error,record.updated_at="failed",exc.code,self._now()
                     return record
@@ -185,26 +170,23 @@ class AgentService:
         if not 1<=limit<=100:raise AgentError("invalid_limit","Limit must be between 1 and 100")
         with self._lock:return sorted((r for r in self._records.values() if r.owner_id==context.user_id),key=lambda r:r.created_at,reverse=True)[:limit]
 
-def build_agent(tools:ToolRegistry,permissions:RestrictedActionManager,workspace:str|Path,browser:BrowserInterface|None=None,computer:ComputerControlInterface|None=None)->AgentService:
-    if browser is None:
-        browser_reader=os.getenv("NGIT_AGENT_BROWSER_READER");browser_navigator=os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR")
-        browser=BrowserInterface(reader=_load_adapter(browser_reader) if browser_reader else None,navigator=_load_adapter(browser_navigator) if browser_navigator else None)
-    if computer is None:
-        computer_adapter=os.getenv("NGIT_AGENT_COMPUTER_ADAPTER")
-        computer=ComputerControlInterface(_load_adapter(computer_adapter) if computer_adapter else None)
-    fs=FilesystemInterface(workspace)
-    for item in (ToolDefinition("browser.inspect","Read-only HTTP(S) page inspection",False,browser.inspect),ToolDefinition("browser.navigate","Approval-gated HTTP(S) browser navigation",True,browser.navigate),ToolDefinition("filesystem.read","Read UTF-8 text in the agent workspace",False,fs.read),ToolDefinition("filesystem.write","Approval-gated workspace text write",True,fs.write),ToolDefinition("computer.perform","Approval-gated computer action via configured adapter",True,computer.perform)):tools.register(item)
-    return AgentService(tools,permissions)
-
 def _load_adapter(spec:str)->Callable[...,Any]:
-    """Load an optional trusted adapter from a fully qualified module:callable path."""
-    import importlib
     if not isinstance(spec,str) or ":" not in spec:raise ValueError("adapter must use module:callable syntax")
-    module_name,attribute=spec.split(":",1)
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*",module_name) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*",attribute):raise ValueError("invalid adapter path")
-    candidate=getattr(importlib.import_module(module_name),attribute)
+    module,attribute=spec.split(":",1)
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*",module) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*",attribute):raise ValueError("invalid adapter path")
+    candidate=getattr(importlib.import_module(module),attribute)
     if not callable(candidate):raise ValueError("configured adapter is not callable")
     return candidate
+
+def build_agent(tools:ToolRegistry,permissions:RestrictedActionManager,workspace:str|Path,browser:BrowserInterface|None=None,computer:ComputerControlInterface|None=None)->AgentService:
+    if browser is None:
+        reader=os.getenv("NGIT_AGENT_BROWSER_READER");navigator=os.getenv("NGIT_AGENT_BROWSER_NAVIGATOR")
+        browser=BrowserInterface(_load_adapter(reader) if reader else None,_load_adapter(navigator) if navigator else None)
+    if computer is None:
+        adapter=os.getenv("NGIT_AGENT_COMPUTER_ADAPTER");computer=ComputerControlInterface(_load_adapter(adapter) if adapter else None)
+    fs=FilesystemInterface(workspace)
+    for item in (ToolDefinition("browser.inspect","Read-only HTTP(S) page inspection",False,browser.inspect),ToolDefinition("browser.navigate","Approval-gated HTTP(S) browser navigation",True,browser.navigate),ToolDefinition("filesystem.read","Read UTF-8 text in agent workspace",False,fs.read),ToolDefinition("filesystem.write","Approval-gated workspace text write",True,fs.write),ToolDefinition("computer.perform","Approval-gated computer action via configured adapter",True,computer.perform)):tools.register(item)
+    return AgentService(tools,permissions)
 
 def public_record(record:TaskRecord)->dict[str,Any]:return {"task_id":record.task_id,"goal":record.goal,"state":record.state,"created_at":record.created_at,"updated_at":record.updated_at,"plan":record.plan,"observations":record.observations,"result":record.result,"error":record.error,"pending_approval_id":record.pending_approval_id}
 __all__=["AgentError","AgentPlan","AgentPlanner","AgentService","BrowserInterface","ComputerControlInterface","FilesystemInterface","PlannedStep","TaskRecord","ToolDefinition","ToolRegistry","ToolResult","build_agent","public_record"]

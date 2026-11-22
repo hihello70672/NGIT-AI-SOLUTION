@@ -5,10 +5,10 @@ from pydantic import BaseModel, Field
 from services.api.security import AuthContext, SecurityError
 from services.api.modules.agent.runtime import AgentError, AgentService, public_record
 
-def create_router(agent: AgentService, current_user: Any, approvals: Any | None = None) -> APIRouter:
+def create_router(agent:AgentService,current_user:Any,approvals:Any|None=None)->APIRouter:
     router=APIRouter(prefix="/agent",tags=["agent"])
-    class TaskInput(BaseModel): goal:str=Field(min_length=1,max_length=4000)
-    class ApprovalInput(BaseModel): approval_id:str=Field(min_length=1,max_length=128)
+    class TaskInput(BaseModel):goal:str=Field(min_length=1,max_length=4000)
+    class ApprovalInput(BaseModel):approval_id:str=Field(min_length=1,max_length=128)
     def invoke(fn,*args):
         try:return fn(*args)
         except AgentError as exc:raise HTTPException(status_code=404 if exc.code=="task_not_found" else 409 if exc.code in {"invalid_task_state","task_running"} else 422,detail={"code":exc.code,"message":exc.message}) from exc
@@ -23,7 +23,11 @@ def create_router(agent: AgentService, current_user: Any, approvals: Any | None 
     @router.get("/tasks/{task_id}")
     def get_task(task_id:str,context:AuthContext=Depends(current_user)):return public_record(invoke(agent.get,context,task_id))
     @router.post("/tasks/{task_id}/approve")
-    def approve(task_id:str,body:ApprovalInput,context:AuthContext=Depends(current_user)):return public_record(invoke(agent.execute,context,task_id,body.approval_id))
+    def approve(task_id:str,body:ApprovalInput,context:AuthContext=Depends(current_user)):
+        record=invoke(agent.get,context,task_id)
+        if record.pending_approval_id is None:raise HTTPException(status_code=409,detail={"code":"approval_unavailable","message":"Request an approval grant before resuming this task"})
+        if body.approval_id!=record.pending_approval_id:raise HTTPException(status_code=403,detail={"code":"approval_mismatch","message":"Approval does not match the pending task grant"})
+        return public_record(invoke(agent.execute,context,task_id,body.approval_id))
     @router.post("/tasks/{task_id}/reject")
     def reject(task_id:str,context:AuthContext=Depends(current_user)):return public_record(invoke(agent.reject,context,task_id))
     @router.post("/approvals",status_code=201)
