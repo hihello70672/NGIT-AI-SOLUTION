@@ -10,7 +10,7 @@ from psycopg.errors import UniqueViolation
 from services.api.config import Settings
 from services.api.database import Database
 from services.api.schemas import RegisterRequest, LoginRequest, UserUpdateRequest, UserResponse, TokenResponse
-from services.api.security import SecurityError, create_default_security, AuthContext, Policy
+from services.api.security import SecurityError, create_default_security, AuthContext, Policy, error_payload
 from services.api.services.users import UserService
 from services.api.services.auth import AuthService
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -63,7 +63,6 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 @app.exception_handler(SecurityError)
 async def security_error_handler(request: Request, exc: SecurityError):
     status = 401 if exc.code == "unauthenticated" else 503 if exc.code == "emergency_stop" else 403
-    from services.api.security import error_payload
     return JSONResponse(status_code=status, content=error_payload(exc, getattr(request.state, "request_id", None)))
 
 
