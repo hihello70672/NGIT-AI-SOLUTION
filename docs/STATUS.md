@@ -1,42 +1,42 @@
 # Project status — Phases 1–4
 
-Status is based on files present in the reviewed `main` tree. Checked-in tests are source coverage only. Tests and runtime checks have not been run for this update; no passing result is claimed.
+Status is based on files present in the reviewed `main` tree. Tests and runtime checks have not been run for this update unless explicitly stated below. Checked-in test sources are not evidence of execution.
 
 ## Phase 1 — Foundation, architecture, database and local environment
 
-**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Five ordered SQL migrations (`0001–0005`) define the isolated `ngit` schema, users, roles, conversations/messages, typed memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes, forced RLS, and tenant-safe video-source constraints. Seed data and transactional SQL assertions cover selected isolation and constraints. Architecture, dependency, phase, assignment, ERD, shared-interface, and status docs exist.
+**Built and committed:** Repository layout includes `apps/web`, `services/api`, `infra/docker`, database migrations/tests, and architecture documentation. Five ordered SQL migrations (`0001–0005`) define the isolated `ngit` schema, users, roles, conversations/messages, typed memories, billing, optional provider metadata, media/video/presentation metadata, audit logs, indexes, forced RLS and tenant-safe video-source constraints. Seed data and transactional SQL assertions cover selected isolation and constraints. Architecture, dependency, phase, assignment, ERD, status and shared-interface docs exist.
 
-**Remaining:** Apply migrations to fresh PostgreSQL 16+; validate grants and isolation with a provisioned application role that is neither owner nor superuser; verify migration/application grants and Compose startup.
+**Remaining:** Apply migrations to fresh PostgreSQL 16+; validate grants and isolation with an application role that is neither owner nor superuser and lacks `BYPASSRLS`; verify grants and Compose startup.
 
-**Caveats:** Migration execution is privileged. Tenant checks must not run as a superuser or table owner. Configure a separate non-owner/non-superuser role without `BYPASSRLS`; grant only required privileges. API must set `ngit.user_id` transaction-locally from authenticated server context. Provider metadata stores opaque credential references, never secrets. External AI remains optional. Database and Compose behavior remain unverified.
+**Caveats:** Migration execution is privileged. Tenant checks must not run as a superuser or table owner. API sets `ngit.user_id` transaction-locally from authenticated server context on user-scoped identity reads and writes. Provider metadata stores opaque credential references, never secrets. External AI remains optional. Database and Compose behavior have not been verified.
 
 ## Phase 2 — Authentication, security, API, users and web client
 
-**Built and committed:** FastAPI configuration, request IDs, safe errors, auth/user services, REST schemas/routes, backend authorization, and transaction-local database caller context are reported present. Security primitives include expiring/revocable opaque bearer tokens, role-checked allow-list policy and owner checks, exact-scope expiring approval engine with separation of duties and atomic consumption, restricted-action manager, emergency stop, redacted audit events and environment-backed secret lookup. Agent approval decisions require explicit admin permission and a reviewer distinct from the task owner. React/TypeScript/Vite includes sign-in/registration, authenticated dashboard, profile settings, read-only administrator listing, responsive design and shared API client. Security and API test sources cover engine and route boundaries.
+**Built and committed:** FastAPI configuration, request IDs, safe error envelopes, password-backed auth, user service, REST schemas/routes, backend authorization, and transaction-local database caller context. Security includes expiring/revocable opaque bearer tokens, allow-list policy/owner checks, exact-scope expiring approvals with separation of duties and atomic consumption, restricted-action manager, emergency stop, redacted audit events and environment-backed secret lookup. The React/TypeScript/Vite client includes sign-in/registration, authenticated dashboard, profile settings and read-only administrator listing. Backend unit/HTTP/security test sources exist, along with an opt-in PostgreSQL identity integration suite.
 
-**Remaining:** Run backend/frontend test suites, production frontend build, PostgreSQL-backed API integration and end-to-end local startup; review security and database role behavior.
+**Remaining:** Run backend/frontend suites and production frontend build; run PostgreSQL-backed API integration and end-to-end local startup; review database role behavior and security.
 
-**Caveats:** Authentication tokens, approvals, emergency-stop state and audit state are process-local; operate a single worker until shared durable state exists. Environment lookup is not production secret management. Browser local-storage bearer tokens are not an authorization boundary. No test or runtime result is claimed as run.
+**Caveats:** Auth tokens, approvals, emergency-stop state and audit events are process-local; run a single worker until durable shared persistence exists. Environment lookup is not production secret management. Browser local-storage bearer tokens are not an authorization boundary. No test or runtime result is claimed as run. The database-backed API test is skipped unless `NGIT_TEST_DATABASE_URL` points to a disposable migrated database and suitable non-owner/non-superuser role.
 
 ## Phase 3 — Brain, model runtime, memory and knowledge
 
-**Built and committed:** Brain supports deterministic offline intent recognition and confidence thresholds, typed request/response contracts, bounded generation, in-process model registry, deterministic priority routing, local/self-hosted OpenAI-compatible runtimes, optional self-hosted fallback and sanitized failures. Server environment configures runtimes; external AI APIs are optional. Evaluation tests cover intents, confidence, routing, local generation, opt-in fallback, validation and safe failures. Memory/knowledge provides authenticated owner-scoped conversations/messages and typed memory persistence on the existing schema, deterministic lexical retrieval, optional injected owner/type-filtered vector search, provenance-aware text chunking, and exact URL-origin allowlisting without fetching sources. Privacy-focused tests cover owner binding, foreign conversation rejection, retrieval filtering, schema use and source verification.
+**Built and committed:** Brain supports deterministic offline intent recognition, confidence thresholds, typed contracts, bounded generation, in-process model registry, deterministic routing, local/self-hosted OpenAI-compatible runtimes, optional self-hosted fallback and sanitized failures. External AI APIs are optional. Memory/knowledge provides authenticated owner-scoped conversations/messages and typed memory persistence, lexical retrieval, optional injected owner/type-filtered vector search, provenance-aware chunking and exact URL-origin allowlisting without fetching sources.
 
-**Remaining:** Run Python tests and database checks; validate RLS/vector-loader ownership; assess classifier/model quality with representative evaluation data. Durable model administration is future work.
+**Remaining:** Run Python tests and database checks; validate RLS/vector-loader ownership and model quality.
 
-**Caveats:** Intent confidence represents classifier certainty, not factual correctness or response quality. Generation authorization remains a separate integration concern. Origin allowlisting does not validate fetched content; embeddings are not persisted by the current schema.
+**Caveats:** Intent confidence is not factual correctness. Generation authorization is separate. Origin allowlisting does not validate fetched content; embeddings are not persisted.
 
 ## Phase 4 — Personal Agent
 
-**Built and committed:** Deterministic single-step task planner; explicit tool allowlist/registry; process-local owner-scoped task history; task execution and observation/verification. Browser inspection/navigation, workspace-bounded UTF-8 text filesystem access, and injected computer-control adapter interfaces exist. Filesystem writes, browser navigation, and computer actions use shared restricted-action policy, emergency stop, and exact-scope single-use approvals. Task owners may request grants but cannot decide them; authenticated reviewers with `admin.approval.decide`/`agent.approval.decide` authorization decide through the shared engine. Resume consumes the exact approval for the current pending task; rejection and verification failure fail closed. Authenticated REST endpoints expose tools, submission, owner-scoped history/detail, approval request, reviewer decision, resume and reject. Unit and API test sources cover planning, registry, path boundaries, approvals, reviewer separation, exact resume, verification failure, ownership and rejection.
+**Built and committed:** Deterministic task planner, explicit tool registry, process-local owner-scoped tasks, execution observation and verification. Browser, workspace-bounded filesystem and injected computer-control interfaces exist. Sensitive actions use shared policy, emergency stop and exact-scope approvals; reviewer decisions require admin authorization and separation from task owner. Authenticated REST endpoints expose task and approval lifecycle.
 
 **Remaining:** Run documented Python/API suites and runtime checks.
 
-**Caveats:** Task records and approval/security state are process-local and not durable; operate a single worker. Filesystem path checks are not an OS sandbox and do not eliminate symlink/race risks; deployment isolation is required. Browser URL syntax validation is not SSRF/network safety: adapters must enforce allowed origins, DNS/IP restrictions, redirects and response limits. Computer control requires an explicitly injected constrained adapter. No external AI API is used by this deterministic engine.
+**Caveats:** Task and security state are process-local; use a single worker. Filesystem checks are not an OS sandbox. Browser adapters still need SSRF/network protections; computer control requires a constrained injected adapter.
 
 ## Validation record
 
-No tests or runtime checks have been run for this update. This includes Python/API, SQL migration/RLS, Compose, frontend tests/build, and live integration. Checked-in test sources do not establish execution or passing outcomes.
+No tests or runtime checks have been run for this update. This includes Python/API, SQL migration/RLS, Compose, frontend tests/build and live integration. The opt-in PostgreSQL API integration tests were added but have not been executed.
 
 ## Next work
 
@@ -48,4 +48,4 @@ Documented Python command (not reported as run):
 PYTHONPATH=. python -m pytest services/api/tests
 ```
 
-Database integration tests require a disposable PostgreSQL instance; see `services/api/db/tests/README.md`.
+Database integration tests require a disposable PostgreSQL instance; see `services/api/db/tests/README.md` and `services/api/tests/README.md`.
