@@ -1,109 +1,72 @@
 # NGIT AI SOLUTION — Architecture
 
-**Status:** Approved target architecture. This document distinguishes repository evidence from planned capabilities; it is not a claim that all target modules are implemented or runtime-validated.
-
-## Repository baseline
-
-The repository contains a React/TypeScript frontend under `apps/web`, a FastAPI API under `services/api`, PostgreSQL schema migrations and tests, shared interface documentation, and a Docker Compose PostgreSQL service. The status record describes Phases 1–4 as built or partly implemented. Those statements are committed-code evidence only: PostgreSQL/RLS, Compose, API/web suites, and end-to-end integrations still require validation. See [`STATUS.md`](STATUS.md). Do not infer that target-only paths or future modules exist.
+**Status:** Approved target architecture. This document distinguishes repository evidence from planned capabilities; it does not claim every target module is implemented or runtime-validated. See [status](STATUS.md).
 
 ## System shape
 
-NGIT is web-first. `apps/web` is the only frontend in this milestone. NGIT-WINDOWS, NGIT-KALI, and NGIT-ANDROID are out of scope until the web/backend system is stable.
+NGIT is a web-first modular application. `apps/web` is the sole frontend in this milestone: React, TypeScript, and Vite. Windows, Kali, and Android clients are future adaptations and are out of scope until the web/backend system is stable. The backend is a modular FastAPI application under `services/api`; PostgreSQL is the system of record. Docker Compose provides the local PostgreSQL installation. Production topology and operational requirements remain open.
 
-The backend is a modular FastAPI application. Domain modules share one application and PostgreSQL initially while retaining clear ownership and service boundaries. PostgreSQL is the system of record. Do not introduce distributed services, a message broker, or mandatory third-party AI providers without approved need. NGIT Brain must retain a local/self-hosted runtime path; external APIs are optional.
+The web UI should be responsive, dark, use green brand accents and Poppins or Inter typography, and present clear loading, empty, and error states. The frontend consumes documented backend APIs; it never connects directly to the database or makes authorization decisions.
 
-The web UI should be responsive, dark, use green brand accents and Poppins or Inter typography, and provide clear loading, empty, and error states. Docker Compose is the local installation path. Production topology remains unspecified. Background work needs a shared acceptance/status/failure interface; its runner and delivery guarantees are open.
+NGIT Brain must retain a local or self-hosted model-runtime path. External AI providers are optional integrations. Do not make core operation depend on external AI APIs. Use WebSockets only where streaming or bidirectional communication justifies them. Long-running work requires an explicit task status/result contract; runner technology, durability, retries, cancellation, and delivery guarantees remain open decisions.
 
-## Target repository layout
+## Repository layout and preservation
 
-This is an architectural target, not evidence that every listed path currently exists. Add paths only with working implementation or substantive documentation; avoid empty scaffolding.
+The following summarizes the existing repository roots and documented targets. It is not an assertion that every illustrative subdirectory exists. Preserve the current flat API files, `services/api/modules/`, migration and test paths; do not move working code merely to match a proposed tree. Add only paths backed by working implementation or substantial documentation.
 
 ```text
 NGIT-AI-SOLUTION/
-├── README.md
-├── pyproject.toml
+├── apps/web/                         # Existing React/TypeScript/Vite application
+├── services/api/                     # Existing FastAPI backend and modules
+│   ├── modules/                      # Existing feature modules
+│   ├── db/migrations/                # Existing SQL migrations (verify before use)
+│   └── tests/                        # Existing API test sources
+├── docs/
+│   └── interfaces/                   # Shared contract documents
+├── infra/docker/                     # Local Compose guidance
 ├── .env.example
-├── .gitignore
-├── compose.yaml
-├── apps/
-│   └── web/                 # Sole frontend in this milestone
-│       ├── README.md
-│       ├── package.json
-│       └── src/{app,components,features,lib,styles,tests}/
-├── services/
-│   └── api/
-│       ├── README.md
-│       ├── main.py
-│       ├── app/
-│       ├── api/{deps.py,v1/{router.py,routes/}}
-│       ├── core/{config.py,errors.py,logging.py,security/}
-│       ├── contracts/
-│       ├── db/{base.py,session.py,migrations/}
-│       ├── modules/{identity,users,brain,models,memory,knowledge,agent,language,media,presentations,newsroom,education,cybersecurity,providers,billing,administration,audit}/
-│       ├── tasks/
-│       └── tests/
-├── docs/{architecture,api,operations,status}/
-└── infra/{docker,scripts}/
+├── compose.yaml                      # Local PostgreSQL
+└── README.md
 ```
 
-The implementation currently uses several flat `services/api` files and `services/api/modules`; preserve these working paths. Do not migrate or duplicate them merely to match the target tree. Existing interface documents live in `docs/interfaces/`.
+An agreed future organization may group routes/schemas/dependencies under `api`, configuration/errors/logging/security under `core`, domain services under `modules`, and task interfaces under `tasks`. Verify current migration and test locations before proposing changes. Do not create empty scaffolding.
 
 ## Module ownership and boundaries
 
-Each module owns its domain logic, validation, persistence models/migrations, and tests. It may use another module’s published service contract, but must not access another module’s private implementation or write to its tables.
+Each domain owns its behavior, validation, persistence model/migrations, and tests. Other modules call published typed service contracts; they do not import private internals or write another module’s tables.
 
-| Module/capability | Responsibility |
+| Capability | Responsibility |
 |---|---|
-| `identity`, `users` | Authentication/account lifecycle, roles, profiles; shared security enforces authorization policy. |
-| `brain`, `models` | Intent, orchestration, confidence, response generation, model registry/routing, local/self-hosted runtime interfaces; provider fallback optional. |
-| `memory`, `knowledge` | User/conversation memory, retrieval, ingestion, source verification, user-isolated knowledge. |
-| `agent` | Planning, tool registry/execution, browser/computer interfaces, observation/verification, backend permission and approval checks. |
-| `language` | Language/dialect detection, multilingual output, translation, code-switching, style, and voice/vision/remote-control interfaces. |
-| `media` | Creative image/video/document workflows, processing, asset management; prefer local/self-hosted processing where practical. |
-| `presentations` | Scripts, scenes, storyboards, assets, timelines, audio sync, subtitles, preview/export for specified modes. |
-| Presenter capability | Avatar, lip-sync, facial/body/gesture animation, TTS, speech alignment, voice configuration, virtual studio. Placement is open; contract is distinct. |
-| `newsroom` | Aggregation, analysis, verification, scripts, narration, ticker, subtitles, archives. Never fabricate real-world events or represent generated footage as authentic. |
-| `education` | Lesson generation, teaching presentations, virtual teacher/classroom, visual explanations, quizzes, assessment. |
-| `cybersecurity` | Authorized assessment, network/web analysis, configuration audits, forensics, safe labs, remediation; validate authorization and constrain targets. |
-| `providers` | Optional provider configuration and credential references, health/usage/cost, routing/fallback, search/browser adapters. |
-| `billing` | Plans, subscriptions, metering, quotas, payment verification, history, webhooks, renewals/refunds. No payment provider selected. |
-| `administration` | Backend-protected operations for users, roles, models, knowledge, requests, reports, rules, service controls, analytics, audit, emergency controls. |
-| `core/security`, `audit` | Shared authentication/authorization, approvals, restricted actions, audit, secret-handling interfaces, emergency stop. |
-| `tasks` | Shared background-task submission/status interface; runner undecided. |
-| `apps/web` | UI that calls documented backend APIs; never authoritative for permissions, billing, or user isolation. |
+| Identity and users | Authentication, account lifecycle, user records, and identity operations. Session/auth format remains a decision. |
+| Core security and audit | Server-derived caller context, authorization, approvals, restricted actions, audit, emergency stop, and secret-handling interfaces. |
+| NGIT Brain and models | Intent, reasoning orchestration, confidence, response generation, model registry/routing, and local/self-hosted runtime. External fallback is optional. |
+| Memory and knowledge | User/conversation memory, retrieval, ingestion, source verification, preferences, and isolation. |
+| Personal Agent | Planning, tools, execution, browser/computer interfaces, observation and verification. Sensitive actions require backend permissions and approval. |
+| Language intelligence | Language/dialect handling, multilingual output, translation, code-switching, style, and coordinated voice/vision/remote interfaces. |
+| Providers and integrations | Optional provider configuration, health/usage/cost, routing/fallback, search, and browser adapters. Keep credentials server-side. |
+| Media and creative AI | Image/video/document workflows, processing, assets, composition, management, and rendering. Prefer local processing where practical. |
+| Presentations | Scripts, scenes, storyboards, assets, timelines, sync, subtitles, preview/export, and specified modes. Presenter implementation remains separate. |
+| Presenter capability | Avatar/robot presenters, animation, gestures, speech alignment, TTS, voice configuration, and virtual studio. |
+| Newsroom | Aggregation, analysis, verification, scripts, narration, ticker, subtitles, and archives. Do not fabricate events or pass generated footage as authentic. |
+| Education | Lessons, teaching presentations, virtual teacher/classroom, visual explanations, quizzes, and assessment. |
+| Cybersecurity | Authorized assessments, network/web analysis, configuration audits, forensics, safe labs, and remediation reporting. Validate authorization and scope. |
+| Billing | Plans, subscriptions, metering, quotas, payment verification, history, webhooks, renewals, and refunds. No payment provider is assumed. |
+| Administration | Backend-protected user/role/model/knowledge/rule/service/audit/report and emergency operations. |
+| Web application | The single frontend; consumes API contracts and provides accessible operation states. |
 
-## Shared implementation rules
+## Dependency and security principles
 
-- Expose domain operations through typed service interfaces. HTTP handlers remain thin: validate/parse, acquire authenticated context, invoke services, serialize, and map errors.
-- User-scoped operations receive explicit server-derived caller context. Client-supplied IDs do not prove ownership.
-- Modules use their own persistence; cross-module access goes through published contracts. Validate at API boundaries and again across internal/background trust boundaries.
-- Long-running/external work needs explicit acceptance, observable status, actionable failure and timeout behavior. Do not claim durability before selecting and validating a runner.
-- PostgreSQL user-owned records require enforceable ownership relationships and authenticated user-scoped queries. Cross-user access must be tested. RLS validation remains outstanding; whether to use RLS in addition to service checks remains an open decision.
-- Audit security-sensitive and administrative operations. Never log credentials, tokens, private prompts, or unnecessary personal data.
-- Use stable documented enum values; money is currency plus integer minor units, never floating point.
-- Python modules/functions and database identifiers use `snake_case`; Python types use `PascalCase`; API paths are lowercase.
-- Secrets come from environment/configuration or an approved secret interface, never source control or browser code.
-- Sensitive agent actions require backend authorization and any required approval; UI confirmation is not authorization. Use shared security/audit rather than competing engines.
+- Identity establishes authenticated context. Backend services enforce permissions; UI restrictions are not security controls.
+- Every user-scoped service receives server-derived caller context. Never trust a user ID, role, permission, or approval supplied only by the client.
+- Sensitive actions require policy checks and, when designated, explicit approval immediately before execution; record relevant outcomes in audit.
+- PostgreSQL is authoritative. Enforce ownership in service queries and test isolation; validate RLS using a non-owner, non-superuser app role. RLS policy/context details require verification.
+- Validate at trust boundaries, including provider callbacks, imported knowledge, browser/tool output, and administration. Errors must not expose secrets, prompts, stack traces, or other users’ data.
+- Use environment/configuration or an approved secrets interface; never commit credentials. Keep external AI optional.
+- Background jobs/events must preserve owner context and define status, correlation, idempotency, retry, and failure behavior before reliability claims.
 
-## Open decisions
+## Decisions still open
 
-1. Frontend framework details, package manager, build tool beyond reported React/TypeScript.
-2. ORM/query and migration tooling.
-3. Authentication method, session/token format, account recovery.
-4. PostgreSQL RLS in addition to service-layer ownership checks.
-5. Embedding/vector search and acceptable models.
-6. First local/self-hosted model runtime, formats, hardware requirements.
-7. Background-task runner and delivery guarantees; current agent history is process-local.
-8. WebSocket auth, reconnect, delivery semantics.
-9. Presenter placement and media/artifact storage.
-10. Payment provider, if any; no integration selected.
-11. Approved external adapters and secret storage.
-12. Deployment, monitoring, backup/restore, retention, recovery objectives beyond local Compose.
-13. The 20th engineering role: the specification names 19 module-owner roles; Chief Architect coordinates the remaining seat without inventing a product module.
-
-## Governance
-
-The Chief Architect coordinates boundaries and approves shared-contract or module-boundary changes. Owners report status, dependencies, actual test execution/results, blockers, and proposed contract changes. Preserve working code and follow approved phase ordering.
+ORM and migration tooling; authentication/session and security-state persistence; RLS policy/context; vector search and embeddings; local model runtime and configuration; durable task runner and guarantees; WebSocket authentication/reconnect semantics; media/artifact storage; payment provider; approved external adapters and secret management; production topology, monitoring, backup/recovery; and the twentieth engineering-role coordination. Do not silently choose these or imply production readiness.
 
 ## References
 
@@ -111,8 +74,8 @@ The Chief Architect coordinates boundaries and approves shared-contract or modul
 - [Phase plan](PHASE_PLAN.md)
 - [Agent assignments](AGENT_ASSIGNMENTS.md)
 - [Shared protocols](interfaces/SHARED_PROTOCOLS.md)
-- [Current implementation status](STATUS.md)
-- [Agent contract](interfaces/AGENT.md), [Brain contract](interfaces/BRAIN.md), [Memory contract](interfaces/MEMORY.md)
-- [Local container guidance](../infra/docker/README.md)
+- [Agent](interfaces/AGENT.md), [Brain](interfaces/BRAIN.md), [Memory](interfaces/MEMORY.md)
+- [Repository status and validation gaps](STATUS.md)
+- [Local Docker guidance](../infra/docker/README.md)
 
-All interface documents describe the existing documented contracts and must be reviewed before extension; do not define conflicting parallel contracts.
+Shared-contract or module-boundary changes require Chief Architect review. Preserve existing implementation and inspect existing interface documents before extending them.
