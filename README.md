@@ -1,21 +1,20 @@
 # NGIT AI SOLUTION
 
-NGIT is a modular, web-first AI ecosystem with a FastAPI backend, PostgreSQL system of record, and React/TypeScript/Vite client in `apps/web/`. This milestone focuses on stabilizing the web/backend system. Windows, Kali, and Android clients are future adaptations outside this scope.
+NGIT is a modular, web-first AI ecosystem with a React/TypeScript/Vite client, FastAPI services, and PostgreSQL as the system of record. This milestone focuses on stabilizing the web/backend system. Windows, Kali, and Android adaptations are future projects and are outside this scope.
 
 ## Repository layout
 
 ```text
-apps/web/                 React, TypeScript and Vite web client
-services/api/             FastAPI application, feature modules and tests
-services/api/db/           PostgreSQL migrations and database tests
-docs/                      Architecture, plans, status and interface contracts
-docs/interfaces/           Shared protocols, Agent, Brain and Memory contracts
-infra/docker/              Local Docker guidance
-compose.yaml                PostgreSQL 16 local development service
-.env.example                Local development configuration template
+apps/web/             React, TypeScript and Vite frontend
+services/api/         FastAPI application, feature modules, migrations and tests
+docs/                 Architecture, dependencies, phases, assignments and status
+docs/interfaces/      Shared protocols and Brain, Memory and Agent contracts
+infra/docker/         Local Docker guidance
+compose.yaml          PostgreSQL 16 local development service
+.env.example          Local configuration template; contains examples, not secrets
 ```
 
-Preserve existing modules, routes, schemas, migrations and tests. Cross-module consumers use published typed contracts; services own their persistence. The frontend calls backend APIs only and is not an authorization boundary. Credentials and secrets must never be committed.
+Preserve existing modules, routes, schemas, migrations and tests. Modules own their persistence and use published typed contracts across boundaries. The web client consumes backend APIs and is not an authorization boundary. NGIT Brain must retain a local/self-hosted runtime path; external AI APIs are optional.
 
 ## Local PostgreSQL
 
@@ -23,32 +22,23 @@ Prerequisite: Docker with the Compose plugin. From the repository root:
 
 ```sh
 cp .env.example .env
-# Replace the example passwords/peppers with unique locally generated values.
+# Replace example passwords and peppers with unique locally generated values.
 docker compose up -d db
 docker compose ps
 ```
 
-Compose currently starts **PostgreSQL only**; it does not containerize the API or web client. PostgreSQL is published on `localhost:5432` by default, with persistent data in the named `ngit_postgres_data` volume. Stop services without deleting data using:
+Compose currently starts PostgreSQL only; it does not containerize the API or web client. The database is published on localhost port 5432 by default and uses a named persistent volume. Stop it with `docker compose down`. Use `docker compose down -v` only when intentionally deleting local database data. Never commit `.env` or real credentials.
 
-```sh
-docker compose down
-```
+See [API setup](services/api/README.md), [database guidance](services/api/db/README.md), [web setup](apps/web/README.md), and [Docker guidance](infra/docker/README.md). Apply migrations and run tests using their documented instructions. No test-passing or release claim is made here; consult [status](docs/STATUS.md) for validation gaps. Create a test report only after executing tests and recording exact commands, environment, and results.
 
-Only use `docker compose down -v` when intentionally deleting the database volume. Apply migrations and run the database checks using the instructions in [`services/api/db/README.md`](services/api/db/README.md). RLS and tenant isolation checks require the documented non-owner, non-superuser application role without `BYPASSRLS`.
-
-## API and web development
-
-See [`services/api/README.md`](services/api/README.md) for Python dependencies, configuration, and API startup, and [`apps/web/README.md`](apps/web/README.md) for frontend setup and scripts. The web application consumes backend APIs; it must not connect directly to PostgreSQL. NGIT Brain retains a local/self-hosted runtime path; external AI APIs are optional.
-
-## Architecture, status and validation
+## Architecture and delivery plan
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Dependency map](docs/DEPENDENCY_MAP.md)
 - [Phase plan](docs/PHASE_PLAN.md)
 - [Agent assignments](docs/AGENT_ASSIGNMENTS.md)
 - [Shared protocols](docs/interfaces/SHARED_PROTOCOLS.md)
-- [Agent](docs/interfaces/AGENT.md), [Brain](docs/interfaces/BRAIN.md), [Memory](docs/interfaces/MEMORY.md) interfaces
-- [Current status and validation gaps](docs/STATUS.md)
-- [Docker guidance](infra/docker/README.md)
+- [Agent](docs/interfaces/AGENT.md), [Brain](docs/interfaces/BRAIN.md), and [Memory](docs/interfaces/MEMORY.md) interfaces
+- [Project status](docs/STATUS.md)
 
-The status record describes phases 1–3 as partly implemented, not fully validated. Test sources in the repository are not evidence that tests ran or passed. Migrations, RLS/grants, Compose lifecycle, API/web suites and builds, and end-to-end startup must be executed before claiming validation. No `docs/TEST_REPORT.md` should be added until tests have actually run, with exact commands, environment, and results. External AI is optional; do not place secrets in source control.
+Shared-contract or module-boundary changes require Chief Architect review. Tests and runtime checks are not considered validated unless actually executed; no verified release or downloadable package is claimed.
