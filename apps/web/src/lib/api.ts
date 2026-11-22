@@ -37,12 +37,12 @@ export const api = {
   generate: (token: string, body: BrainRequest): Promise<BrainResult> => request<BrainResult>('/brain/generate', { method: 'POST', body: JSON.stringify(body) }, token),
   agentTools: (token: string): Promise<{ tools: AgentTool[] }> => request<{ tools: AgentTool[] }>('/agent/tools', {}, token),
   agentTasks: (token: string, limit = 50): Promise<{ tasks: AgentTask[] }> => request<{ tasks: AgentTask[] }>(`/agent/tasks?limit=${limit}`, {}, token),
-  agentTask: (token: string, taskId: string): Promise<AgentTask> => request<AgentTask>(`/agent/tasks/${encodeURIComponent(taskId)}`, {}, token),
-  submitTask: (token: string, goal: string): Promise<AgentTask> => request<AgentTask>('/agent/tasks', { method: 'POST', body: JSON.stringify({ goal }) }, token),
+  agentTask: async (token: string, taskId: string): Promise<AgentTask> => { const result = await request<{ task_id: string; task: AgentTask }>(`/agent/tasks/${encodeURIComponent(taskId)}`, {}, token); return result.task; },
+  submitTask: async (token: string, goal: string): Promise<AgentTask> => { const result = await request<{ task_id: string; task: AgentTask }>('/agent/tasks', { method: 'POST', body: JSON.stringify({ goal }) }, token); return result.task; },
   requestApproval: (token: string, taskId: string): Promise<AgentApproval> => request<AgentApproval>(`/agent/tasks/${encodeURIComponent(taskId)}/approve`, { method: 'POST' }, token),
   decideApproval: (token: string, approvalId: string, approved: boolean): Promise<{ approval_id: string; status: string }> => request(`/agent/approvals/${encodeURIComponent(approvalId)}/decision`, { method: 'POST', body: JSON.stringify({ approved }) }, token),
-  resumeTask: (token: string, taskId: string, approvalId: string): Promise<AgentTask> => request<AgentTask>(`/agent/tasks/${encodeURIComponent(taskId)}/resume`, { method: 'POST', body: JSON.stringify({ approval_id: approvalId }) }, token),
-  rejectTask: (token: string, taskId: string): Promise<AgentTask> => request<AgentTask>(`/agent/tasks/${encodeURIComponent(taskId)}/reject`, { method: 'POST' }, token),
+  resumeTask: async (token: string, taskId: string, approvalId: string): Promise<AgentTask> => { const result = await request<{ task_id: string; task: AgentTask }>(`/agent/tasks/${encodeURIComponent(taskId)}/resume`, { method: 'POST', body: JSON.stringify({ approval_id: approvalId }) }, token); return result.task; },
+  rejectTask: async (token: string, taskId: string): Promise<AgentTask> => { const result = await request<{ task_id: string; task: AgentTask }>(`/agent/tasks/${encodeURIComponent(taskId)}/reject`, { method: 'POST' }, token); return result.task; },
 };
 export function getSavedToken(): string | null { try { return localStorage.getItem('ngit_access_token'); } catch { return null; } }
 export function saveToken(token: string | null): void { try { if (token) localStorage.setItem('ngit_access_token', token); else localStorage.removeItem('ngit_access_token'); } catch { /* current tab session remains usable */ } }
