@@ -9,19 +9,16 @@ class AdminError(ValueError):
 
 class AdminService:
     """Policy-gated administration. Identity is always supplied by auth context."""
-    def __init__(self,database:Any,policies:PolicyEngine,actions:RestrictedActionManager,audit:AuditLogger):
-        self.database,self.policies,self.actions,self.audit=database,policies,actions,audit
+    def __init__(self,database:Any,policies:PolicyEngine,actions:RestrictedActionManager,audit:AuditLogger):self.database,self.policies,self.actions,self.audit=database,policies,actions,audit
     def _authorize(self,context:AuthContext,action:str,resource_id:str="")->None:
         policy=self.policies.authorize(context,action)
         if policy.restricted:self.actions.authorize(context,action,resource_id)
     @staticmethod
     def _rows(cursor:Any)->list[dict[str,Any]]:
-        names=[item.name if hasattr(item,"name") else item[0] for item in cursor.description or ()]
-        return [dict(zip(names,row)) for row in cursor.fetchall()]
+        names=[item.name if hasattr(item,"name") else item[0] for item in cursor.description or ()];return [dict(zip(names,row)) for row in cursor.fetchall()]
     def _query(self,sql:str,params:tuple=(),caller:str|None=None,fetch:bool=True)->list[dict[str,Any]]:
         with self.database.connection(caller) as conn:
-            cursor=conn.execute(sql,params)
-            return self._rows(cursor) if fetch else []
+            cursor=conn.execute(sql,params);return self._rows(cursor) if fetch else []
     def list_resource(self,context:AuthContext,kind:str,limit:int=100,offset:int=0,query:str="")->list[dict[str,Any]]:
         if isinstance(limit,bool) or not 1<=limit<=100 or isinstance(offset,bool) or offset<0:raise AdminError("invalid pagination")
         specs={"users":("admin.users.read","SELECT id,email,display_name,status,created_at FROM users ORDER BY created_at DESC LIMIT %s OFFSET %s"),"roles":("admin.roles.read","SELECT id,name,description FROM roles ORDER BY name LIMIT %s OFFSET %s"),"models":("admin.models.read","SELECT provider_key,display_name,enabled,config,created_at,updated_at FROM provider_configs ORDER BY provider_key LIMIT %s OFFSET %s"),"knowledge":("admin.knowledge.read","SELECT id,user_id,kind,left(content,1000) AS content,metadata,created_at FROM memories ORDER BY created_at DESC LIMIT %s OFFSET %s"),"learning-requests":("admin.learning.read","SELECT id,actor_user_id,action,resource_id,outcome,created_at,details FROM audit_logs WHERE action LIKE 'learning.%' ORDER BY created_at DESC LIMIT %s OFFSET %s"),"reports":("admin.reports.read","SELECT id,actor_user_id,action,resource_id,outcome,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s OFFSET %s"),"rules":("admin.rules.read","SELECT action,roles,approval_required,restricted,updated_at FROM admin_rules ORDER BY action LIMIT %s OFFSET %s"),"audit-logs":("admin.audit.read","SELECT id,actor_user_id,action,resource_id,outcome,created_at,details FROM audit_logs ORDER BY created_at DESC LIMIT %s OFFSET %s")}

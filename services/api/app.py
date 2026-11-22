@@ -21,14 +21,13 @@ from services.api.modules.agent.api import create_agent_router
 from services.api.modules.agent.runtime import ToolRegistry, build_agent
 from services.api.modules.admin.service import AdminService
 from services.api.modules.admin.api import create_admin_router
-settings=Settings.from_env();settings.validate_security_configuration()
-db=Database(settings.database_url,settings.database_schema)
-authenticator,policies,approvals,audit,emergency,actions=create_default_security()
-users=UserService(db);auth=AuthService(users,authenticator);bearer=HTTPBearer(auto_error=False);tasks=TaskRegistry()
+settings=Settings.from_env();settings.validate_security_configuration();db=Database(settings.database_url,settings.database_schema)
+authenticator,policies,approvals,audit,emergency,actions=create_default_security();users=UserService(db);auth=AuthService(users,authenticator);bearer=HTTPBearer(auto_error=False);tasks=TaskRegistry()
 def _register_admin_policies():
     for name in ("users.read","roles.read","models.read","knowledge.read","learning.read","reports.read","rules.read","audit.read","analytics.read","rules.manage","emergency.engage","emergency.reset"):
         policies.register(Policy("admin."+name,frozenset({"admin"})))
-    policies.register(Policy("admin.users.manage",frozenset({"admin"}),True,True));policies.register(Policy("admin.services.control",frozenset({"admin"}),True,True))
+    policies.register(Policy("admin.users.manage",frozenset({"admin"}),True,True));policies.register(Policy("admin.users.read",frozenset({"admin"})))
+    policies.register(Policy("admin.services.control",frozenset({"admin"}),True,True))
 _register_admin_policies();admin=AdminService(db,policies,actions,audit)
 @asynccontextmanager
 async def lifespan(_:FastAPI):
