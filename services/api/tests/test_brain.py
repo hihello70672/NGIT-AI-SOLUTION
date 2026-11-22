@@ -1,4 +1,4 @@
-"""Evaluation tests for Brain intent, confidence, routing, and fallback."""
+"""Evaluation tests for Brain intent, confidence, routing and fallback."""
 import asyncio
 
 import pytest
@@ -35,10 +35,10 @@ def test_intent_evaluation_examples_and_confidence_range():
     assert classifier.recognize("  ") == ("unknown", 0.0)
 
 
-def test_registry_orders_by_priority_and_validates_definitions():
+def test_registry_priority_capability_and_validation():
     registry = ModelRegistry()
-    registry.register(model("later", FakeRuntime(), priority=20))
-    registry.register(model("first", FakeRuntime(), priority=1))
+    registry.register(model("later", FakeRuntime(), 20))
+    registry.register(model("first", FakeRuntime(), 1))
     assert [m.model_id for m in registry.candidates()] == ["first", "later"]
     with pytest.raises(ValueError, match="already registered"):
         registry.register(model("first", FakeRuntime()))
@@ -66,7 +66,7 @@ def test_failed_primary_routes_to_next_registered_model():
     assert not result.fallback_used and len(failed.calls) == len(secondary.calls) == 1
 
 
-def test_optional_fallback_can_be_disabled_and_errors_are_safe():
+def test_optional_fallback_can_be_disabled_and_errors_are_sanitized():
     registry = ModelRegistry()
     registry.register(model("local", FakeRuntime(fails=True)))
     service = BrainService(registry, fallback=model("self-hosted", FakeRuntime("fallback")))
@@ -78,7 +78,7 @@ def test_optional_fallback_can_be_disabled_and_errors_are_safe():
     assert "private runtime detail" not in error.value.message
 
 
-def test_low_confidence_invalid_limits_and_explicit_model_validation():
+def test_low_confidence_invalid_limits_and_explicit_model_selection():
     registry = ModelRegistry()
     registry.register(model("local", FakeRuntime()))
     service = BrainService(registry)
@@ -87,17 +87,17 @@ def test_low_confidence_invalid_limits_and_explicit_model_validation():
         with pytest.raises(BrainError):
             asyncio.run(service.respond(request))
     with pytest.raises(BrainError) as error:
-        asyncio.run(service.respond(BrainRequest("question?", model_id="missing")))
+        asyncio.run(service.respond(BrainRequest("How?", model_id="missing")))
     assert error.value.code == "model_not_found"
 
 
-def test_runtime_url_rejects_embedded_secrets_and_query_data():
+def test_runtime_url_rejects_embedded_credentials_and_query_data():
     for url in ("https://user:pass@model.local/v1", "http://model.local/v1?token=secret"):
         with pytest.raises(ValueError):
             OpenAICompatibleRuntime(url)
 
 
-def test_generation_timeout_is_safely_reported():
+def test_runtime_deadline_is_enforced_and_reported_safely():
     class SlowRuntime:
         async def generate(self, **kwargs):
             await asyncio.sleep(0.05)

@@ -81,7 +81,7 @@ class ModelDefinition:
 
 
 class ModelRegistry:
-    """In-process model catalog; durable administration is a separate concern."""
+    """In-process model catalog; durable administration is separate."""
 
     def __init__(self) -> None:
         self._models: dict[str, ModelDefinition] = {}
@@ -160,7 +160,7 @@ class BrainError(Exception):
 
 
 class BrainService:
-    """Intent, confidence, model routing, generation, and optional fallback."""
+    """Intent, confidence, model routing, generation and optional fallback."""
 
     def __init__(self, registry: ModelRegistry, recognizer: IntentRecognizer | None = None,
                  fallback: ModelDefinition | None = None) -> None:
@@ -178,10 +178,10 @@ class BrainService:
             raise BrainError("validation_error", "Maximum tokens must be between 1 and 8192")
         if not math.isfinite(request.min_confidence) or not 0 <= request.min_confidence <= 1:
             raise BrainError("validation_error", "Minimum confidence must be between 0 and 1")
+
         intent, confidence = self.recognizer.recognize(text)
         if confidence < request.min_confidence:
             raise BrainError("low_confidence", "Could not confidently identify the request")
-
         if request.model_id:
             selected = self.registry.get(request.model_id)
             if selected is None or not selected.enabled or "chat" not in selected.capabilities:
@@ -208,17 +208,19 @@ class BrainService:
                     definition.runtime.generate(
                         model=definition.model_name, messages=messages,
                         temperature=request.temperature,
-                        max_tokens=request.max_tokens or definition.max_tokens,
+                        max_tokens=min(request.max_tokens or definition.max_tokens,
+                                       definition.max_tokens),
                         timeout=definition.timeout_seconds),
                     timeout=definition.timeout_seconds)
                 if not isinstance(result, Generation) or not result.text.strip():
                     raise RuntimeUnavailable("Model runtime returned unusable output")
-                return BrainResponse(result.text.strip(), intent, confidence, definition.model_id,
-                                     definition not in candidates)
+                return BrainResponse(result.text.strip(), intent, confidence,
+                                     definition.model_id, definition not in candidates)
             except (RuntimeErrorBase, asyncio.TimeoutError) as exc:
                 last_error = (exc if isinstance(exc, RuntimeErrorBase)
                               else RuntimeUnavailable("Model runtime timed out"))
-        raise BrainError("model_generation_failed", "No configured model could generate a response") from last_error
+        raise BrainError("model_generation_failed",
+                         "No configured model could generate a response") from last_error
 
 
 __all__ = ["BrainError", "BrainRequest", "BrainResponse", "BrainService", "Generation",
