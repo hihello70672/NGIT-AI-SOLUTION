@@ -1,13 +1,13 @@
 # Project status — Phases 1–6
 
-Status is based on committed files on `main`. Test sources are not evidence of passing tests; runtime checks are reported only when actually executed.
+Status reflects committed repository contents on `main`. Test sources are not execution evidence.
 
 ## Phase 6 — Administration, rules and service control
 
-**Implemented:** `services/api/modules/admin/` contains authenticated REST endpoints and permission-gated service operations for users and roles, model-provider listings, knowledge/memory listings, learning-request and report/audit views, rule management, service-control state, aggregate analytics and emergency controls. The API registers explicit admin-only actions in the existing `PolicyEngine`; endpoint identity comes from the authenticated server-side `AuthContext`. User and service mutations run through restricted-action approval checks. Migration `0006_admin_control.sql` adds durable rule and service-control state with RLS. Administrative test sources cover permissions, identity scoping, approvals, validation, analytics, emergency state and routes.
+**Implemented:** `services/api/modules/admin/` provides authenticated administrative routes and service logic for user/role management, model-provider listings, knowledge/memory listings, learning-request and report/audit views, rule creation, persisted service-control intent, analytics, audit events, and emergency stop/reset. Admin-only actions are registered in the existing `PolicyEngine`. Request identity is sourced from the authenticated `AuthContext`; restricted account and service changes use `RestrictedActionManager` exact-resource approvals. Migration `0006_admin_control.sql` adds durable rules and service controls plus RLS policies for administrative access; SQL test sources include non-admin visibility assertions.
 
-**Caveats:** Tests and runtime checks for this phase have not been run. Service-control rows persist desired state but do not execute deployment-specific operations. Learning requests and reports reuse audit records because no distinct domain persistence is present. Approval, emergency and audit engines remain process-local; deploy a single worker until shared persistence is implemented. Migration execution, grants/RLS validation, database integration and end-to-end checks remain outstanding.
+**Caveats and remaining work:** Phase tests, SQL migration, database integration, grants/RLS behavior and runtime checks have not been run. This implementation's admin rule API creates new actions and does not provide rule editing/deletion; loading persisted rules into the in-process engine across workers/restarts remains unimplemented. Existing security and audit engine state is process-local; deploy one API worker. Service control records desired state but doesn't execute deployment-specific operations. Learning and report listings reuse existing audit rows because no distinct domain tables exist. Current provider/knowledge/audit data access depends on deployment DB grants/RLS; validate least privilege under the actual application role before exposing. Emergency controls are operational stop-state APIs but remain process-local.
 
-## Verification record
+## Verification
 
-No tests, builds, migrations, Compose lifecycle, or runtime checks were executed for this update. Checked-in test sources do not imply passing tests.
+No tests, builds, migrations, Compose lifecycle, or runtime checks were executed for this update. No passing results are claimed.
