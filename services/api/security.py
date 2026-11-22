@@ -2,7 +2,7 @@
 
 Tokens, approvals, stop state and audit events are process-local. Multi-worker
 or restart-safe deployments require an approved shared persistence adapter.
-""" 
+"""
 from __future__ import annotations
 
 import copy
@@ -15,6 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 
@@ -43,7 +44,6 @@ class Policy:
 
 class SecretStore:
     """Environment-backed configuration; secret values are never enumerated."""
-
     def __init__(self, environ: Mapping[str, str] | None = None):
         self._environ = os.environ if environ is None else environ
 
@@ -55,7 +55,6 @@ class SecretStore:
 
 class Authenticator:
     """Opaque bearer issue/validation/revocation; stores keyed digests only."""
-
     def __init__(self, pepper: str | None = None, *, clock: Callable[[], float] = time.time):
         self._pepper = pepper if pepper is not None else SecretStore().get("AUTH_TOKEN_PEPPER")
         if not self._pepper or len(self._pepper.encode()) < 32:
@@ -144,9 +143,16 @@ class AuditLogger:
             self._events.append(copy.deepcopy(event))
             return copy.deepcopy(event)
 
-    def events(self) -> tuple[dict[str, Any], ...]:
+    def events(self) -> tuple[Mapping[str, Any], ...]:
+        """Return detached, recursively read-only event snapshots."""
+        def freeze(value: Any) -> Any:
+            if isinstance(value, dict):
+                return MappingProxyType({key: freeze(item) for key, item in value.items()})
+            if isinstance(value, list):
+                return tuple(freeze(item) for item in value)
+            return value
         with self._lock:
-            return tuple(copy.deepcopy(event) for event in self._events)
+            return tuple(freeze(copy.deepcopy(event)) for event in self._events)
 
 
 class PolicyEngine:
@@ -201,7 +207,7 @@ class Approval:
 
 
 class ApprovalEngine:
-    """One-time expiring grants bound to actor, action and resource."""
+    """One-time expiring grants bound to actor/action/resource and distinct reviewer."""
     def __init__(self, *, clock: Callable[[], float] = time.time):
         self._clock, self._lock = clock, threading.RLock()
         self._approvals: dict[str, Approval] = {}
@@ -217,6 +223,8 @@ class ApprovalEngine:
         return copy.deepcopy(approval)
 
     def decide(self, approval_id: str, approver_user_id: str, *, approved: bool) -> Approval:
+        if not isinstance(approved, bool):
+            raise ValueError("approval decision must be boolean")
         with self._lock:
             approval = self._approvals.get(approval_id)
             if approval is None or approval.expires_at <= self._clock() or approval.status != "pending":
@@ -268,7 +276,7 @@ class EmergencyStop:
 
 
 class RestrictedActionManager:
-    """Composes RBAC, ownership, stop switch, approval and audit."""
+    """Composes RBAC, resource ownership, stop switch, approval and audit."""
     def __init__(self, policies: PolicyEngine, approvals: ApprovalEngine,
                  stop: EmergencyStop, audit: AuditLogger):
         self._policies, self._approvals, self._stop, self._audit = policies, approvals, stop, audit
