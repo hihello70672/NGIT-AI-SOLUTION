@@ -1,4 +1,4 @@
-"""Security engine regression tests; run with python -m unittest discover -s services/api/tests."""
+"""Security engine regression tests; run with PYTHONPATH=services/api python -m unittest discover -s services/api/tests."""
 import unittest
 
 from security import (
