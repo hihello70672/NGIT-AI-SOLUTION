@@ -5,32 +5,26 @@ from pydantic import BaseModel, Field
 from services.api.security import AuthContext, SecurityError
 from services.api.modules.agent.runtime import AgentError, AgentService, public_record
 
-
-def create_agent_router(agent: AgentService, current_user: Any, approvals: Any | None = None) -> APIRouter:
+def create_agent_router(agent: AgentService, current_user: Any, approvals: Any = None) -> APIRouter:
     router = APIRouter(prefix="/agent", tags=["agent"])
 
     class TaskInput(BaseModel):
         goal: str = Field(min_length=1, max_length=4000)
-
     class ApprovalInput(BaseModel):
         approval_id: str = Field(min_length=1, max_length=128)
-
     class DecisionInput(BaseModel):
         approved: bool
 
     def invoke(fn, *args):
-        try:
-            return fn(*args)
+        try: return fn(*args)
         except AgentError as exc:
             status = 404 if exc.code == "task_not_found" else 409 if exc.code in {"task_running", "invalid_task_state"} else 422
             raise HTTPException(status_code=status, detail={"code": exc.code, "message": exc.message}) from exc
         except SecurityError as exc:
-            raise HTTPException(status_code=401 if exc.code == "unauthenticated" else 403,
-                                detail={"code": exc.code, "message": exc.message}) from exc
+            raise HTTPException(status_code=401 if exc.code == "unauthenticated" else 403, detail={"code": exc.code, "message": exc.message}) from exc
 
     @router.get("/tools")
     def list_tools(context: AuthContext = Depends(current_user)):
-        del context
         return {"tools": agent.tools.list()}
 
     @router.post("/tasks", status_code=202)
@@ -47,33 +41,23 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
 
     @router.post("/tasks/{task_id}/approve")
     def request_approval(task_id: str, context: AuthContext = Depends(current_user)):
-        """Task owner requests a grant; this endpoint never makes the approval decision."""
-        if approvals is None:
-            raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
+        if approvals is None: raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
         record = invoke(agent.get, context, task_id)
         pending = next((o for o in record.observations if o.get("state") == "approval_required"), None)
         if record.state != "awaiting_approval" or pending is None:
             raise HTTPException(status_code=409, detail={"code": "approval_not_required", "message": "Task has no pending approval"})
-        try:
-            grant = approvals.request(context.user_id, pending["action"], pending["resource_id"])
-        except SecurityError as exc:
-            raise HTTPException(status_code=403, detail={"code": exc.code, "message": exc.message}) from exc
+        try: grant = approvals.request(context.user_id, pending["action"], pending["resource_id"])
+        except SecurityError as exc: raise HTTPException(status_code=403, detail={"code": exc.code, "message": exc.message}) from exc
         record.pending_approval_id = grant.approval_id
-        return {"task_id": task_id, "approval_id": grant.approval_id, "action": pending["action"],
-                "resource_id": pending["resource_id"], "status": grant.status}
+        return {"task_id": task_id, "approval_id": grant.approval_id, "action": pending["action"], "resource_id": pending["resource_id"], "status": grant.status}
 
     @router.post("/approvals/{approval_id}/decision")
-    def decide_approval(approval_id: str, body: DecisionInput, context: AuthContext = Depends(current_user)):
-        """Reviewer endpoint wired to the shared approval engine; separation of duties is enforced there."""
-        if approvals is None:
-            raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
-        try:
-            approval = approvals.decide(approval_id, context.user_id, approved=body.approved)
-        except SecurityError as exc:
-            raise HTTPException(status_code=403, detail={"code": exc.code, "message": exc.message}) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail={"code": "invalid_decision", "message": str(exc)}) from exc
-        return {"approval_id": approval.approval_id, "status": approval.status}
+    def decide(approval_id: str, body: DecisionInput, context: AuthContext = Depends(current_user)):
+        if approvals is None: raise HTTPException(status_code=503, detail={"code": "approval_unavailable", "message": "Approval workflow unavailable"})
+        try: grant = approvals.decide(approval_id, context.user_id, approved=body.approved)
+        except SecurityError as exc: raise HTTPException(status_code=403, detail={"code": exc.code, "message": exc.message}) from exc
+        except ValueError as exc: raise HTTPException(status_code=422, detail={"code": "invalid_decision", "message": str(exc)}) from exc
+        return {"approval_id": grant.approval_id, "status": grant.status}
 
     @router.post("/tasks/{task_id}/resume")
     def resume(task_id: str, body: ApprovalInput, context: AuthContext = Depends(current_user)):
@@ -84,7 +68,6 @@ def create_agent_router(agent: AgentService, current_user: Any, approvals: Any |
         return public_record(invoke(agent.reject, context, task_id))
 
     return router
-
 
 create_router = create_agent_router
 __all__ = ["create_agent_router", "create_router"]
