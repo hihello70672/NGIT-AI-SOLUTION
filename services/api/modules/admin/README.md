@@ -1,5 +1,15 @@
 # Administration module
 
-The module provides authenticated REST endpoints for user and role management, model-provider configuration listing, knowledge/memory administration, learning-request and report views, permission-rule administration, service controls, analytics, audit events, and emergency stop/reset. Every operation is checked against `PolicyEngine`; caller identity is supplied only by the authenticated API dependency. Restricted actions are delegated to `RestrictedActionManager` for stop-state and exact-scope approval checks.
+`create_admin_router` exposes `/admin` endpoints under the configured API prefix. Permission checks use registered `PolicyEngine` actions and authenticated `AuthContext`; request payloads cannot specify actor identity or roles. Restricted user and service mutations use exact-resource approvals through `RestrictedActionManager`.
 
-Persistent rules and service control state use migration `0006_admin_control.sql`; existing user, role, provider, memory, audit, and usage records are reused. The security engines, approvals, and emergency-stop gate remain process-local as documented in `services/api/security.py`; deploy a single API worker until shared persistence is implemented. Service-control state records administrative intent; deployment-specific executors must consume it and enforce safe rollout semantics.
+| Endpoint | Permission action | Purpose |
+| --- | --- | --- |
+| `GET /admin/{users,roles,models,knowledge,learning-requests,reports,rules,audit-logs}` | Resource-specific `admin.*.read` | Bounded read-only listings from existing tables |
+| `PATCH /admin/users/{id}` | `admin.users.manage` | Update account status and/or role assignments |
+| `POST /admin/rules` | `admin.rules.manage` | Add validated permission actions |
+| `PUT /admin/services/{name}` | `admin.services.control` | Persist desired service state |
+| `GET /admin/analytics/overview` | `admin.analytics.read` | Aggregate user status and enabled provider totals |
+| `GET /admin/audit/events` | `admin.audit.read` | Read persistent audit records |
+| `POST /admin/emergency` | `admin.emergency.engage` / `admin.emergency.reset` | Engage or reset security engine stop state |
+
+Migration `0006_admin_control.sql` creates RLS-protected tables for admin rules and service-control state. Existing user, role, provider, memory, and audit records are reused. Learning and report lists currently select matching/general audit data because the schema has no separate learning-request/report entities. Service-control rows are persisted intent, not a deployment executor. The permission engine dynamically receives a new rule only after durable insertion succeeds; rules require restart/reload to populate process-local engines in other workers. Approval, stop and audit engines remain process-local, so run one API worker until approved shared persistence is implemented.
