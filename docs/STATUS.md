@@ -10,13 +10,13 @@ Database migration tooling remains deliberately plain ordered SQL. Apply all fil
 
 ## Phase 2 — Authentication, security, API, user management
 
-The API now provides environment-backed FastAPI configuration, database pool lifecycle, validated registration/login/logout and caller-owned profile routes, request IDs, safe validation/conflict/internal error handling, and authenticated Brain router access. User records and role lookups use the PostgreSQL services through the existing pool and transaction-local RLS user context. Password verification uses scrypt with a configurable pepper; opaque expiring/revocable token digests, default-deny authorization, approval controls, and audit are defined in `security.py` and the auth service.
+The FastAPI service exposes configured versioned REST endpoints for registration, login, logout, current-user profile read/update, protected Brain endpoints, memory, and optional agent integration. Request validation, request IDs, safe error handling, OpenAPI, password hashing, opaque expiring/revocable bearer tokens, role and ownership policies, approvals, and audit primitives are included. User identity persistence is implemented through PostgreSQL-backed services and the existing connection pool with transaction-local user context for RLS-scoped access. Password and token peppers must be configured in the environment; no real secrets are committed.
 
-Security token/approval/audit state remains process-local; only a single worker is supported until a shared adapter is approved and implemented. Background-task support remains an in-process interface, not durable execution. Existing REST is request/response; no WebSocket is justified by current module contracts, so none was added. External AI APIs remain optional. OpenAPI is provided by FastAPI.
+Token/approval/audit state remains process-local; only a single worker is supported until an approved shared adapter exists. Background-task support is an in-process interface, not durable execution. Existing endpoints are request/response, so no WebSocket was justified or added. External AI APIs remain optional. Tests and live database integration have not been executed in this task.
 
 ## Phase 3 — Brain, memory, retrieval, knowledge
 
-Brain, memory and deterministic retrieval modules are present. Brain endpoints have router-level bearer authentication. Memory queries derive ownership from the authenticated context and use database transaction-local RLS where applicable. Knowledge ingestion accepts source text and enforces configured source allowlists; URL fetching is not implemented. Vector persistence/embeddings are intentionally absent pending architecture approval.
+Brain, memory and deterministic retrieval modules are present. Brain endpoints have router-level bearer authentication. Memory queries derive ownership from authenticated context and use database transaction-local RLS where applicable. Knowledge ingestion accepts source text and enforces configured source allowlists; URL fetching is not implemented. Vector persistence/embeddings are intentionally absent pending architecture approval.
 
 ## Remaining validation and integration
 

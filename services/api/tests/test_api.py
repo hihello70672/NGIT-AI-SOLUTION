@@ -1,4 +1,4 @@
-"""API behavior tests against an isolated in-memory user service."""
+"""API behavior tests against a replaceable in-memory user-service boundary."""
 import os
 os.environ.setdefault("AUTH_TOKEN_PEPPER", "test-auth-pepper-value-at-least-32-bytes")
 os.environ.setdefault("PASSWORD_PEPPER", "test-password-pepper-value")
@@ -60,3 +60,20 @@ def test_login_rejects_bad_password():
 def test_request_id_header_is_correlated():
     response = client.get("/health", headers={"X-Request-ID": "trace-123"})
     assert response.headers["X-Request-ID"] == "trace-123"
+
+
+def test_unknown_fields_and_empty_profile_update_are_rejected():
+    assert client.post("/api/v1/auth/login", json={"email": "x@example.com", "password": "x", "unexpected": True}).status_code == 422
+    registration = client.post("/api/v1/auth/register", json={"email": "third@example.com", "password": "long-enough-password", "display_name": "Third"})
+    token = registration.json()["access_token"]
+    response = client.patch("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"}, json={})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_duplicate_registration_conflict():
+    payload = {"email": "duplicate@example.com", "password": "long-enough-password", "display_name": "Dup"}
+    assert client.post("/api/v1/auth/register", json=payload).status_code == 201
+    response = client.post("/api/v1/auth/register", json=payload)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
