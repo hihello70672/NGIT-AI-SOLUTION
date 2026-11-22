@@ -1,48 +1,32 @@
-# Project status — Phases 1–3
+# Project status — Phases 1–2
 
-Status is based on files present in the reviewed `main` tree at commit `3b4ea82a2a2d53a8318a1672003661fd4a2293da`. The tree confirms the files described below are committed. Tests and runtime checks have not been run for this status update; checked-in test sources do not establish execution or passing outcomes.
+Status is based on the files present in the reviewed default-branch tree at the time of this update. The tree confirms the implementation and documentation described below are committed. Tests and runtime checks have not been run for this status update; checked-in test sources do not establish execution or passing outcomes.
 
 ## Phase 1 — Foundation, architecture, database and local environment
 
-**Built and committed:** Repository layout and architecture documentation; PostgreSQL 16 local Compose service and environment example; five ordered migrations (`0001–0005`) defining the isolated `ngit` schema and domain tables, reference seeds, indexes, forced row-level security, and tenant-safe video-source constraints. SQL test assertions, a runner, and setup guidance are present. Architecture, dependency map, phase plan, agent assignments, ERD, shared protocols and module interface documents are committed.
+**Built and committed:** Repository layout for the web client, FastAPI service, database, documentation and Docker guidance; architecture, dependency map, phase plan, agent assignments, ERD, shared protocols and module interface documents; PostgreSQL 16 Compose service and environment templates; five ordered database migration files (`0001`–`0005`) defining the `ngit` schema, reference seeds, domain tables, indexes, forced row-level security (RLS), tenant constraints and tenant-safe video source relationship. SQL assertions, a runner and database setup guidance are present.
 
-**Remaining:** Apply migrations to a fresh PostgreSQL instance; verify grants and tenant isolation with an application role that is neither table owner nor superuser and lacks `BYPASSRLS`; confirm migration lifecycle and Compose startup. Run SQL assertions and record environment and outcome.
+**Remaining:** Apply migrations to a fresh PostgreSQL instance; verify migration lifecycle, grants and RLS/tenant isolation using the required non-owner, non-superuser application role without `BYPASSRLS`; validate Compose startup and environment configuration.
 
-**Blockers and caveats:** Database and Compose behavior have not been verified. Migration execution is privileged; RLS validation must use the separate non-owner/non-superuser application role. The API must set `ngit.user_id` transaction-locally from authenticated server context. Provider metadata is for opaque credential references, not secrets. External AI is optional.
+**Blockers/caveats:** Database and Compose behavior has not been verified. Migration execution requires a privileged migration role; RLS checks require a distinct application role and transaction-local `ngit.user_id` derived from authenticated server context. Provider metadata is not a place for secrets; external AI is optional.
 
 ## Phase 2 — Authentication, security, API, users and web client
 
-**Built and committed:** FastAPI application/configuration, request IDs, safe errors, user and authentication services, REST endpoints/schemas, PostgreSQL caller context, and backend authorization. Security primitives include expiring/revocable opaque bearer tokens, allow-list role and owner policy checks, exact-scope approvals with expiry, reviewer separation and atomic consumption, restricted-action authorization, emergency stop, redacted audit events and environment-backed secret lookup. Agent approval decisions enforce administrator policy and task-owner separation. React/TypeScript/Vite web client provides sign-in/registration, authenticated dashboard, profile settings and read-only administrator listing, with responsive/accessibility states and shared API client. Backend, database-integration, security, agent API and web UI test sources are committed.
+**Built and committed:** FastAPI app/configuration, identity and user services, REST schemas and endpoints, request IDs and safe error handling; PostgreSQL caller context; process-local bearer-token authentication/revocation, role/owner policy enforcement, scoped approvals, restricted-action authorization, emergency stop, redacted audit and environment-backed secret lookup. The API composes Brain and memory routes and conditionally enables agent routes when configured. The React/TypeScript/Vite client includes sign-in/registration, authenticated dashboard, profile settings, admin user listing, responsive/accessibility states and a shared typed API client. Backend, security, integration and UI test sources, API and web setup guidance are committed.
 
-**Remaining:** Run backend and frontend suites; build the production frontend; execute opt-in PostgreSQL-backed API integration and SQL/RLS assertions; verify end-to-end local startup. Review authorization boundaries and database role behavior; record exact commands and results only after execution.
+**Remaining:** Run backend and frontend test suites; build the production frontend; exercise PostgreSQL-backed identity/integration and SQL/RLS checks; verify authorization boundaries and local end-to-end API/web startup. Record exact commands and outcomes only after execution.
 
-**Blockers and caveats:** No tests or runtime checks have been run for this update, including Python/API, frontend tests/build, migration/RLS, Compose or live integration. PostgreSQL integration requires a disposable migrated database and appropriate non-owner/non-superuser role. Auth tokens, approvals, emergency-stop state and audit events are process-local: operate a single API worker until durable shared state exists. Environment lookup is not production secret management; browser local-storage bearer tokens are not an authorization boundary.
-
-## Phase 3 — Brain, model runtime, memory and knowledge
-
-**Built and committed:** Brain typed request/result and runtime contracts; deterministic offline intent baseline and confidence threshold; bounded generation orchestration; in-process model catalogue with capability, enablement, priority routing and explicit selection; OpenAI-compatible HTTP integration for server-configured local or self-hosted model endpoints; optional, explicit self-hosted fallback and safe generation failures; model listing and generation REST routes. Evaluation sources cover intent examples/confidence, registry routing, local generation, fallback/opt-out, malformed limits and safe API behavior. Memory/knowledge service sources provide owner-scoped persistence interfaces, lexical retrieval, optional injected owner/type-filtered vector search, provenance-aware chunking and URL-origin allowlisting without fetching sources.
-
-**Remaining:** Execute Brain and full backend evaluation suites; validate configured local and self-hosted endpoints and failure/timeouts; integrate authenticated caller authorization before exposing generation to untrusted callers; validate persistence/isolation and optional retrieval against PostgreSQL and suitable roles. Embeddings are not persisted.
-
-**Blockers and caveats:** No tests or runtime checks have been run for this update. Brain registry and route configuration are process-local; this is not durable model administration or multi-worker shared state. A missing local model does not silently select an external provider; fallback is explicitly configured and request-opt-in. Classifier confidence is not factual correctness or response quality. Brain API authentication integration remains a prerequisite before untrusted exposure.
+**Blockers/caveats:** No tests, builds, migrations, Compose lifecycle checks or live integration checks have been run for this update. Authentication tokens, approvals, emergency-stop state and audit events are process-local and lost on restart; run one API worker until approved durable shared state is implemented. Environment-based secret lookup is development-only; browser token storage is not an authorization boundary. PostgreSQL-backed checks require a disposable migrated database and correctly provisioned application role.
 
 ## Validation record
 
-Tests and runtime checks have not been run for this update. No passing result is claimed for Python/API tests, web tests/build, PostgreSQL migration/RLS, Compose startup or end-to-end integration.
+Tests and runtime checks have not been run for this status update. No passing result is claimed for Python/API tests, web tests/build, PostgreSQL migrations/RLS, Compose startup or end-to-end integration. Test sources are not execution evidence. Do not add `docs/TEST_REPORT.md` until tests have actually run; include exact commands, environment and observed outcomes.
 
 ## Next work
 
-1. Run documented backend and frontend suites and fix failures.
-2. Run migrations and SQL/RLS assertions against disposable PostgreSQL using the required non-owner/non-superuser role; verify grants and transaction-local caller context.
-3. Verify Compose and local API/web startup and PostgreSQL-backed identity integration.
-4. Review durable shared security state before enabling multiple API workers.
-5. Run Brain tests and validate explicitly configured local/self-hosted runtimes; keep generation behind authenticated caller authorization before untrusted access.
-6. Update this record with exact commands and observed outcomes after verification.
+1. Provision disposable PostgreSQL and distinct migration/application roles; apply all ordered migrations and execute the documented SQL/RLS assertions.
+2. Run documented backend and frontend tests, investigate and fix failures, and build the production frontend.
+3. Validate Compose lifecycle and end-to-end local API/web operation against PostgreSQL; review authorization and tenant isolation.
+4. Document exact validation evidence. Resolve durable shared security state before multi-worker operation.
 
-Documented backend command (not reported as run):
-
-```bash
-PYTHONPATH=. python -m pytest services/api/tests
-```
-
-Database setup and test instructions are in `services/api/db/tests/README.md` and `services/api/tests/README.md`.
+Phases 1–2 are implemented in part and documented, but are not validated or complete.
