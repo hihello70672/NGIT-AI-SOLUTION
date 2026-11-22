@@ -1,1 +1,1 @@
-"""NGIT Personal Agent planning and execution module."""
+"""NGIT Personal Agent module."""
