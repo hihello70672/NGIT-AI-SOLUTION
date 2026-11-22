@@ -1,4 +1,4 @@
--- Phase 1 regression tests on a disposable database as a non-owner app role.
+-- Phase 1 regression tests on disposable DB as non-owner app role.
 BEGIN;
 DO $tests$
 DECLARE
@@ -20,10 +20,14 @@ BEGIN
     END IF;
   END LOOP;
 
-  INSERT INTO ngit.users(email,password_hash,display_name)
-  VALUES ('phase1-a-' || gen_random_uuid() || '@example.invalid','test-only','Phase 1 A') RETURNING id INTO u1;
+  -- Insert the second user under its own RLS identity first.
+  PERFORM set_config('ngit.user_id',gen_random_uuid()::text,true);
   INSERT INTO ngit.users(email,password_hash,display_name)
   VALUES ('phase1-b-' || gen_random_uuid() || '@example.invalid','test-only','Phase 1 B') RETURNING id INTO u2;
+  PERFORM set_config('ngit.user_id',gen_random_uuid()::text,true);
+  INSERT INTO ngit.users(email,password_hash,display_name)
+  VALUES ('phase1-a-' || gen_random_uuid() || '@example.invalid','test-only','Phase 1 A') RETURNING id INTO u1;
+
   PERFORM set_config('ngit.user_id',u1::text,true);
   INSERT INTO ngit.conversations(user_id,title) VALUES (u1,'tenant A') RETURNING id INTO c1;
 
