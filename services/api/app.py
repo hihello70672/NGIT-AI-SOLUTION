@@ -17,18 +17,24 @@ from services.api.services.auth import AuthService
 from services.api.services.tasks import TaskRegistry
 from services.api.modules.brain.api import router as brain_router
 from services.api.modules.memory.api import create_router as create_memory_router
-from services.api.modules.agent.api import create_agent_router
+from services.api.modules.agent.api import create_router as create_agent_router
 from services.api.modules.agent.runtime import ToolRegistry, build_agent
 from services.api.modules.admin.service import AdminService
 from services.api.modules.admin.api import create_admin_router
+from services.api.modules.billing.service import BillingService, InMemoryPaymentProvider
+from services.api.modules.billing.api import create_billing_router
+
 settings=Settings.from_env();settings.validate_security_configuration();db=Database(settings.database_url,settings.database_schema)
 authenticator,policies,approvals,audit,emergency,actions=create_default_security();users=UserService(db);auth=AuthService(users,authenticator);bearer=HTTPBearer(auto_error=False);tasks=TaskRegistry()
 def _register_admin_policies():
     for name in ("users.read","roles.read","models.read","knowledge.read","learning.read","reports.read","rules.read","audit.read","analytics.read","rules.manage","emergency.engage","emergency.reset"):
         policies.register(Policy("admin."+name,frozenset({"admin"})))
-    policies.register(Policy("admin.users.manage",frozenset({"admin"}),True,True));policies.register(Policy("admin.users.read",frozenset({"admin"})))
+    policies.register(Policy("admin.users.manage",frozenset({"admin"}),True,True))
     policies.register(Policy("admin.services.control",frozenset({"admin"}),True,True))
 _register_admin_policies();admin=AdminService(db,policies,actions,audit)
+policies.register(Policy("billing.refund",frozenset({"admin"})))
+billing_provider=InMemoryPaymentProvider()
+billing=BillingService(billing_provider,policies,audit)
 @asynccontextmanager
 async def lifespan(_:FastAPI):
     db.open()
@@ -82,10 +88,11 @@ def update_me(body:UserUpdateRequest,request:Request,context:AuthContext=Depends
 def list_users(limit:int=Query(100,ge=1,le=100),offset:int=Query(0,ge=0),context:AuthContext=Depends(current_user)):
     policies.authorize(context,"admin.users.manage");return {"users":[public_user(u) for u in users.list_users(limit,offset)],"limit":limit,"offset":offset}
 app.include_router(brain_router,prefix=settings.api_prefix,dependencies=[Depends(current_user)])
-app.include_router(create_memory_router(db,current_user,source_allowlist=tuple(filter(None,(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST","").split(",")))),prefix=settings.api_prefix))
+app.include_router(create_memory_router(db,current_user,source_allowlist=tuple(filter(None,(x.strip() for x in os.getenv("NGIT_KNOWLEDGE_SOURCE_ALLOWLIST","").split(","))))),prefix=settings.api_prefix)
 workspace=os.getenv("NGIT_AGENT_WORKSPACE","").strip()
 if workspace:
     for name in ("filesystem.write","browser.navigate","computer.perform"):policies.register(Policy(f"agent.tool.{name}",frozenset({"user","admin"}),approval_required=True,restricted=True))
     app.include_router(create_agent_router(build_agent(ToolRegistry(),actions,workspace),current_user,approvals,policies),prefix=settings.api_prefix)
 app.include_router(create_admin_router(admin,current_user),prefix=settings.api_prefix)
+app.include_router(create_billing_router(billing,current_user),prefix=settings.api_prefix)
 __all__=["app"]
