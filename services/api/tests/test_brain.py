@@ -1,4 +1,4 @@
-"""Evaluation tests for Brain intent, confidence, routing and fallback."""
+"""Evaluation tests for Brain intent, confidence, routing, and fallback."""
 import asyncio
 
 import pytest
@@ -22,83 +22,92 @@ class FakeRuntime:
         return Generation(self.output, kwargs["model"])
 
 
-def model(model_id, runtime, priority=10):
+def definition(model_id, runtime, priority=10):
     return ModelDefinition(model_id, runtime, model_id, priority=priority)
 
 
-def test_intent_recognizer_baseline_evaluation():
+def test_intent_classifier_fixed_evaluation_examples_and_confidence_range():
     classifier = HeuristicIntentRecognizer()
     examples = [
-        ("Hi there", "greeting"),
-        ("How does this work?", "question"),
+        ("Hi there", "greeting"), ("How does this work?", "question"),
         ("Write a Python function", "code"),
         ("Summarize this document", "summarization"),
         ("Translate this in Spanish", "translation"),
         ("Tell me a story", "general"),
     ]
     outcomes = [classifier.recognize(text) for text, _ in examples]
-    accuracy = sum(intent == expected for (intent, _), (_, expected) in zip(outcomes, examples)) / len(examples)
-    assert accuracy == 1.0
+    assert [label for label, _ in outcomes] == [expected for _, expected in examples]
     assert all(0 <= confidence <= 1 for _, confidence in outcomes)
 
 
-def test_routes_by_priority_and_returns_confidence():
-    first, second = FakeRuntime("answer one"), FakeRuntime("answer two")
+def test_model_registry_priority_selection_and_duplicate_rejection():
     registry = ModelRegistry()
-    registry.register(model("second", second, priority=20))
-    registry.register(model("first", first, priority=1))
-    result = asyncio.run(BrainService(registry).respond(BrainRequest("What is NGIT?")))
-    assert result.text == "answer one"
-    assert result.model_id == "first"
+    registry.register(definition("later", FakeRuntime(), priority=20))
+    registry.register(definition("first", FakeRuntime(), priority=1))
+    assert [entry.model_id for entry in registry.candidates()] == ["first", "later"]
+    with pytest.raises(ValueError, match="already registered"):
+        registry.register(definition("first", FakeRuntime()))
+
+
+def test_primary_local_runtime_generates_response():
+    runtime = FakeRuntime("answer")
+    registry = ModelRegistry()
+    registry.register(definition("local", runtime))
+    result = asyncio.run(BrainService(registry).respond(BrainRequest("How are you?")))
+    assert result.text == "answer"
+    assert result.model_id == "local"
     assert result.intent == "question" and result.confidence >= 0.35
-    assert len(first.calls) == 1 and not second.calls
+    assert not result.fallback_used
 
 
-def test_falls_back_only_when_enabled_and_primary_fails():
+def test_self_hosted_fallback_runs_only_when_enabled_and_primary_fails():
     primary, fallback = FakeRuntime(fails=True), FakeRuntime("fallback answer")
     registry = ModelRegistry()
-    registry.register(model("primary", primary))
-    result = asyncio.run(BrainService(registry, fallback=model("fallback", fallback)).respond(
+    registry.register(definition("primary", primary))
+    result = asyncio.run(BrainService(registry, fallback=definition("self-hosted", fallback)).respond(
         BrainRequest("Explain this", allow_fallback=True)
     ))
     assert result.text == "fallback answer" and result.fallback_used
+    assert len(primary.calls) == len(fallback.calls) == 1
 
 
-def test_disabled_fallback_does_not_call_fallback_runtime():
-    primary, fallback = FakeRuntime(fails=True), FakeRuntime("should not run")
+def test_disabled_fallback_is_not_called():
+    primary, fallback = FakeRuntime(fails=True), FakeRuntime("must not run")
     registry = ModelRegistry()
-    registry.register(model("primary", primary))
+    registry.register(definition("primary", primary))
     with pytest.raises(BrainError) as error:
-        asyncio.run(BrainService(registry, fallback=model("fallback", fallback)).respond(
+        asyncio.run(BrainService(registry, fallback=definition("fallback", fallback)).respond(
             BrainRequest("Explain this", allow_fallback=False)
         ))
     assert error.value.code == "model_generation_failed"
     assert not fallback.calls
 
 
-def test_low_confidence_and_empty_input_are_rejected():
+def test_empty_input_low_confidence_and_invalid_generation_limits_are_rejected():
     service = BrainService(ModelRegistry())
-    with pytest.raises(BrainError) as low:
+    with pytest.raises(BrainError) as empty:
         asyncio.run(service.respond(BrainRequest("", min_confidence=0)))
-    assert low.value.code == "validation_error"
+    assert empty.value.code == "validation_error"
     with pytest.raises(BrainError) as uncertain:
         asyncio.run(service.respond(BrainRequest("a", min_confidence=0.9)))
     assert uncertain.value.code == "low_confidence"
+    with pytest.raises(BrainError) as invalid:
+        asyncio.run(service.respond(BrainRequest("valid", max_tokens=0)))
+    assert invalid.value.code == "validation_error"
 
 
-def test_registry_rejects_duplicate_and_selects_enabled_chat_models():
-    runtime = FakeRuntime()
+def test_explicit_disabled_or_unknown_model_is_not_silently_rerouted():
     registry = ModelRegistry()
-    registry.register(model("available", runtime))
-    with pytest.raises(ValueError):
-        registry.register(model("available", runtime))
-    assert [item.model_id for item in registry.candidates()] == ["available"]
-
-
-def test_generation_failure_exposes_safe_error_not_runtime_detail():
-    registry = ModelRegistry()
-    registry.register(model("offline", FakeRuntime(fails=True)))
+    registry.register(ModelDefinition("disabled", FakeRuntime(), "disabled", enabled=False))
     with pytest.raises(BrainError) as error:
-        asyncio.run(BrainService(registry).respond(BrainRequest("Explain this")))
+        asyncio.run(BrainService(registry).respond(BrainRequest("question?", model_id="missing")))
+    assert error.value.code == "model_not_found"
+
+
+def test_generation_failure_does_not_leak_runtime_details():
+    registry = ModelRegistry()
+    registry.register(definition("offline", FakeRuntime(fails=True)))
+    with pytest.raises(BrainError) as error:
+        asyncio.run(BrainService(registry).respond(BrainRequest("question?")))
     assert error.value.code == "model_generation_failed"
     assert "offline" not in error.value.message

@@ -1,14 +1,15 @@
-"""Pluggable local and self-hosted text generation runtimes.
+"""Plug-able local and self-hosted text-generation runtimes.
 
-The runtime contract is deliberately provider-neutral. Local HTTP runtimes such
-as Ollama and OpenAI-compatible self-hosted endpoints use the standard
-``/v1/chat/completions`` protocol. No provider is required to import the Brain.
+The runtime contract is provider-neutral. Local Ollama and other OpenAI-compatible
+self-hosted endpoints use the chat-completions protocol; no third-party API is
+required for Brain operation.
 """
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -34,18 +35,16 @@ class RuntimeErrorBase(Exception):
 
 
 class RuntimeUnavailable(RuntimeErrorBase):
-    """A model endpoint could not be reached or returned an unusable response."""
+    """The model endpoint was unavailable or returned unusable output."""
 
 
 class OpenAICompatibleRuntime:
-    """HTTP adapter for local/self-hosted chat-completions endpoints.
-
-    ``base_url`` is the endpoint root, e.g. ``http://localhost:11434/v1``.
-    Credentials are optional and are supplied by the server environment, never
-    by a request or browser client.
-    """
+    """HTTP adapter for local/self-hosted chat-completions endpoints."""
 
     def __init__(self, base_url: str, api_key: str | None = None) -> None:
+        parsed = urlsplit(base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Model runtime URL must be an absolute HTTP(S) URL")
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
 
@@ -54,31 +53,24 @@ class OpenAICompatibleRuntime:
         max_tokens: int, timeout: float,
     ) -> Generation:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        body = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
+        body = {"model": model, "messages": messages, "temperature": temperature,
+                "max_tokens": max_tokens}
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/chat/completions", json=body, headers=headers
                 )
                 response.raise_for_status()
-                payload: Any = response.json()
+                payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise RuntimeUnavailable("Model runtime request failed") from exc
-
         try:
             choice = payload["choices"][0]
             text = choice["message"]["content"]
             if not isinstance(text, str) or not text.strip():
-                raise ValueError("empty model content")
-            return Generation(
-                text=text.strip(), model=str(payload.get("model") or model),
-                finish_reason=choice.get("finish_reason"),
-            )
+                raise ValueError("empty model output")
+            return Generation(text=text.strip(), model=str(payload.get("model") or model),
+                              finish_reason=choice.get("finish_reason"))
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RuntimeUnavailable("Model runtime returned an invalid response") from exc
 
@@ -96,13 +88,13 @@ class ModelDefinition:
 
 
 class ModelRegistry:
-    """In-process registry; persistent administrative configuration is future work."""
+    """In-process registry; durable administrative configuration is future work."""
 
     def __init__(self) -> None:
         self._models: dict[str, ModelDefinition] = {}
 
     def register(self, definition: ModelDefinition) -> None:
-        if not definition.model_id or not definition.model_name:
+        if not definition.model_id.strip() or not definition.model_name.strip():
             raise ValueError("model identifiers must not be empty")
         if definition.timeout_seconds <= 0 or definition.max_tokens <= 0:
             raise ValueError("model limits must be positive")
@@ -146,7 +138,7 @@ class IntentRecognizer(Protocol):
 
 
 class HeuristicIntentRecognizer:
-    """Deterministic baseline classifier, replaceable by a local classifier."""
+    """Deterministic baseline classifier, not represented as a trained model."""
 
     _RULES = (
         ("greeting", ("hello", "hi", "hey", "good morning", "good evening")),
@@ -176,12 +168,11 @@ class BrainError(Exception):
 
 
 class BrainService:
-    """Intent, confidence, routing, generation, and optional fallback workflow."""
+    """Intent, confidence, model routing, generation, and optional fallback."""
 
-    def __init__(
-        self, registry: ModelRegistry, recognizer: IntentRecognizer | None = None,
-        fallback: ModelDefinition | None = None,
-    ) -> None:
+    def __init__(self, registry: ModelRegistry,
+                 recognizer: IntentRecognizer | None = None,
+                 fallback: ModelDefinition | None = None) -> None:
         self.registry = registry
         self.recognizer = recognizer or HeuristicIntentRecognizer()
         self.fallback = fallback
@@ -192,6 +183,8 @@ class BrainService:
             raise BrainError("validation_error", "Input text must not be empty")
         if not 0 <= request.temperature <= 2:
             raise BrainError("validation_error", "Temperature must be between 0 and 2")
+        if request.max_tokens is not None and not 1 <= request.max_tokens <= 8192:
+            raise BrainError("validation_error", "Maximum tokens must be between 1 and 8192")
         if not 0 <= request.min_confidence <= 1:
             raise BrainError("validation_error", "Minimum confidence must be between 0 and 1")
 
@@ -209,10 +202,8 @@ class BrainService:
         if not candidates:
             raise BrainError("model_unavailable", "No chat model is configured")
 
-        messages = [
-            {"role": "system", "content": request.system_prompt},
-            {"role": "user", "content": text},
-        ]
+        messages = [{"role": "system", "content": request.system_prompt},
+                    {"role": "user", "content": text}]
         attempted: set[str] = set()
         last_error: RuntimeErrorBase | None = None
         queue = list(candidates)
@@ -225,13 +216,11 @@ class BrainService:
             try:
                 generated = await asyncio.wait_for(
                     definition.runtime.generate(
-                        model=definition.model_name,
-                        messages=messages,
+                        model=definition.model_name, messages=messages,
                         temperature=request.temperature,
                         max_tokens=request.max_tokens or definition.max_tokens,
                         timeout=definition.timeout_seconds,
-                    ),
-                    timeout=definition.timeout_seconds,
+                    ), timeout=definition.timeout_seconds,
                 )
                 return BrainResponse(
                     text=generated.text, intent=intent, confidence=confidence,
@@ -239,7 +228,7 @@ class BrainService:
                     fallback_used=definition not in candidates,
                 )
             except (RuntimeErrorBase, asyncio.TimeoutError) as exc:
-                last_error = exc if isinstance(exc, RuntimeErrorBase) else RuntimeUnavailable(
-                    "Model runtime timed out"
-                )
-        raise BrainError("model_generation_failed", "No configured model could generate a response") from last_error
+                last_error = (exc if isinstance(exc, RuntimeErrorBase)
+                              else RuntimeUnavailable("Model runtime timed out"))
+        raise BrainError("model_generation_failed",
+                         "No configured model could generate a response") from last_error
