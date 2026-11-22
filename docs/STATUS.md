@@ -12,11 +12,11 @@ Status is based on committed files in the reviewed `main` tree. Checked-in tests
 
 ## Phase 2 — Authentication, security, API, users and web client
 
-**Built and committed:** FastAPI configuration, request IDs, safe errors, auth/user services, REST schemas/routes, server-enforced authorization and transaction-local database caller context. Security primitives include expiring/revocable bearer tokens, policy/ownership checks, approval/emergency-stop controls, redacted audit events, environment secret lookup. React/TypeScript/Vite client includes sign-in/registration, authenticated dashboard, profile settings, admin user list and shared API client with checked-in tests.
+**Built and committed:** FastAPI configuration, request IDs, safe errors, auth/user services, REST schemas/routes, server-enforced authorization and transaction-local database caller context. Security primitives include expiring/revocable bearer tokens, policy/ownership checks, approval/emergency-stop controls, redacted audit events and environment secret lookup. React/TypeScript/Vite client includes sign-in/registration, authenticated dashboard shell, profile settings and administrator user list; responsive dark design system with green accents and Inter typography; shared API client with loading, empty, error/retry, expired-session, and backend access-denied states. User-management listing is read-only and authorization remains backend-enforced. UI tests cover auth errors, registration mode, profile updates/logout, admin denial, list loading/error/retry/empty/populated states, and expired sessions.
 
 **Remaining:** Execute backend/frontend suites, production build, PostgreSQL API integration and end-to-end local startup; review security and database role behavior.
 
-**Caveats:** Example peppers require local non-example secrets. Token, approval, emergency-stop and audit state are process-local; use a single worker until shared durable state exists. Environment lookup is not production secret management. User-list endpoint is read-only. Browser local-storage bearer tokens are not an authorization boundary.
+**Caveats:** Example peppers require local non-example secrets. Token, approval, emergency-stop and audit state are process-local; use a single worker until shared durable state exists. Environment lookup is not production secret management. Browser local-storage bearer tokens are not an authorization boundary.
 
 ## Phase 3 — Brain, model runtime, memory and knowledge
 
@@ -26,7 +26,7 @@ Status is based on committed files in the reviewed `main` tree. Checked-in tests
 
 ## Phase 4 — Personal Agent
 
-**Built and committed:** `services/api/modules/agent/` provides explicit-goal planning, allowlisted tool registry, synchronous task execution, observations/verification and owner-scoped process-local task history. Filesystem operations are workspace-confined, UTF-8/size-limited; writes require approval and read-back verification. Browser inspection uses injected HTTP(S) reader, navigation requires approval and configured adapter. Computer control only invokes injected adapter; actions require approval. Sensitive capabilities use shared `RestrictedActionManager`, policy engine, emergency stop and `ApprovalEngine`, and reject when approval/verification fails. Authenticated routes expose tools, task submission/history/read, grant requests/reviewer decisions, resume/reject. Adapters/workspace are opt-in; external AI not required.
+**Built and committed:** `services/api/modules/agent/` provides explicit-goal planning, allowlisted tool registry, synchronous task execution, observations/verification and owner-scoped process-local task history. Filesystem operations are workspace-confined, UTF-8/size-limited; writes require approval and read-back verification. Browser inspection uses injected HTTP(S) reader; navigation requires approval and configured adapter. Computer control only invokes injected adapter; actions require approval. Sensitive capabilities use shared `RestrictedActionManager`, policy engine, emergency stop and `ApprovalEngine`, rejecting when approval/verification fails. Authenticated routes expose tools, task submission/history/read, grant requests/reviewer decisions, resume/reject. Adapters/workspace opt-in; external AI not required.
 
 **Validation outstanding:** Phase 4 and existing API suites have not run for this update. No passing results, live browser/network, deployed filesystem security, desktop control, database integration, or multi-worker behavior are claimed. Task history and approval state are process-local; execution synchronous, not a durable queue.
 
@@ -34,7 +34,7 @@ Status is based on committed files in the reviewed `main` tree. Checked-in tests
 
 ## Validation record
 
-No tests or runtime checks are claimed as executed for this update, including Python/API/agent tests, SQL migration/RLS, Compose, frontend tests/build or live adapters. Record exact commands, environment and outcomes only after running.
+No tests or runtime checks are claimed as executed for this update, including Python/API/agent tests, SQL migration/RLS, Compose, frontend tests/build or live adapters. Record exact commands, environment and outcomes only after running them.
 
 ## Next work
 

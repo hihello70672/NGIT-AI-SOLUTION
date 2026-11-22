@@ -8,27 +8,27 @@ This plan records approved target deliverables, not completion claims. Implement
 
 **Deliverables:** Approved architecture and module boundaries; shared contracts; PostgreSQL schema/migrations/indexes; local Compose setup; migration and RLS verification.
 
-**Status record:** Architecture, dependency, phase, assignment, ERD, and shared-interface documentation; FastAPI/web roots; Compose/environment example; migrations `0001`–`0004`; seed/reference data and schema checks are recorded. Migration integrity, RLS under non-owner role, cross-user checks, and Compose lifecycle remain unverified.
+**Status record:** Architecture, dependency, phase, assignment, ERD and shared-interface documentation; FastAPI/web roots; Compose/environment example; migrations `0001`–`0005`; seed/reference data and schema checks are recorded. Migration integrity, RLS under non-owner role, cross-user checks, and Compose lifecycle remain unverified.
 
 ### Phase 2 — Authentication, backend, security, user management
 
 **Deliverables:** Validated authentication/security design; backend-enforced authorization, approvals, audit and emergency controls; user APIs and frontend flows; security tests.
 
-**Status record:** Authentication/user services/routes/schemas, authorization and approval controls, emergency stop, audit redaction, and frontend sign-in/registration and authenticated user-management flows are recorded. Tokens, approvals, emergency-stop state, and audit events are process-local; admin user listing is missing; Brain generation authorization is separate. Runtime validation is outstanding.
+**Status record:** Authentication/user services/routes/schemas, authorization and approval controls, emergency stop, audit redaction, and frontend sign-in/registration and authenticated user-management flows are recorded. Responsive dark UI design system, dashboard shell, profile screen, administrator users screen, shared API client, and UI tests for API/auth states are included. Tokens, approvals, emergency-stop state, and audits are process-local; admin user listing is read-only. Runtime validation remains outstanding.
 
 ## Build step B — Phases 3–4: Brain, model runtime, memory, knowledge, Agent
 
 ### Phase 3 — Brain, model runtime, memory, knowledge
 
-**Deliverables:** Intent/reasoning orchestration, confidence handling, model registry/routing, local/self-hosted runtime, optional fallback, memory retrieval, knowledge ingestion/provenance, user isolation, and evaluation coverage.
+**Deliverables:** Intent/reasoning orchestration, confidence handling, model registry/routing, local/self-hosted runtime, optional fallback, memory retrieval, knowledge ingestion/provenance, user isolation and evaluation coverage.
 
-**Status record:** Deterministic intent classification and confidence checks; in-process registry/priority routing; bounded async generation; local/self-hosted OpenAI-compatible runtime and opt-in self-hosted fallback; persisted conversations/messages and memory records; lexical retrieval plus optional vector candidates; provenance-aware text ingestion; URL-origin allowlist verification without fetching remote content. Embeddings/vector indexing remain optional external adapters. Runtime/integration checks are unverified.
+**Status record:** Deterministic intent classification and confidence checks; in-process registry/priority routing; bounded async generation; local/self-hosted OpenAI-compatible runtime and opt-in self-hosted fallback; persisted conversations/messages and memory records; lexical retrieval plus optional vector candidates; provenance-aware text ingestion; URL-origin allowlist verification without fetching remote content. Embeddings/vector indexing remain optional external adapters. Runtime/integration checks unverified.
 
 ### Phase 4 — Personal Agent, tools, browser and computer interfaces
 
 **Deliverables:** Planner/tool contracts; scoped execution; observation/verification; policy and approval gates; owner-scoped task status/results; failure and side-effect tests.
 
-**Status record:** Conservative one-step planner, tool registry, bounded workspace filesystem access, HTTP(S)-only browser boundary, injected computer-control boundary, observations and verification, and authenticated task APIs are recorded. Restricted actions pause for exact action/resource approval. Rejection, mismatched/expired grants, emergency stop, tool failures, and failed verification do not produce success. Security/task state is process-local and execution synchronous; adapters and workspace need configuration. Validation is outstanding.
+**Status record:** Conservative one-step planner, tool registry, bounded workspace filesystem access, HTTP(S)-only browser boundary, injected computer-control boundary, observations/verification, and authenticated task APIs are recorded. Restricted actions pause for exact action/resource approval. Rejection, mismatched/expired grants, emergency stop, tool failures, and failed verification do not produce success. Security/task state is process-local and execution synchronous; adapters/workspace require configuration. Validation outstanding.
 
 ## Build step C — Phases 5–7: Language, administration, billing, optional integrations
 
@@ -80,7 +80,7 @@ Integrate approved modules and run/report API, auth, ownership/isolation, billin
 
 ## Integration gates and evidence discipline
 
-1. Inventory actual code/contracts before changing paths; preserve working implementation.
+1. Inventory actual code/contracts before changing paths; preserve working implementations.
 2. Verify migrations, ownership/RLS, API, web, Compose, and database behavior with recorded evidence.
 3. Integrate phases 3–4 using reviewed contracts; distinguish process-local/synchronous behavior from durable task execution.
 4. Approve language, voice/vision/remote, administration, billing, provider, secret, task, and streaming protocols before dependent integration.
