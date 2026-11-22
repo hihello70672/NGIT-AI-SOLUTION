@@ -48,7 +48,7 @@ NGIT-AI-SOLUTION/
 └── compose.yaml                                 # PostgreSQL service only
 ```
 
-The migration inventory was inspected: `services/api/db/migrations/` contains exactly `0001_initial_schema.sql` through `0005_tenant_safe_video_source.sql`. This resolves the former discrepancy: documentation now reflects five migrations. `docs/TEST_REPORT.md` is absent and must only be created after tests have actually run, with exact commands, environment, and outcomes.
+The migration inventory was inspected: `services/api/db/migrations/` contains exactly five ordered SQL migrations: `0001_initial_schema.sql`, `0002_seed_reference_data.sql`, `0003_secure_role_assignments.sql`, `0004_complete_domain_schema.sql`, and `0005_tenant_safe_video_source.sql`. `docs/TEST_REPORT.md` is absent and must only be created after tests have actually run, with exact commands, environment, and outcomes.
 
 ## 3. Module ownership and boundaries
 
